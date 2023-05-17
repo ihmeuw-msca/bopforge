@@ -16,6 +16,7 @@ dependencies = ["numpy", "scipy", "pandas", "matplotlib", "mrtool", "pplkit"]
 
 [project.optional-dependencies]
 test = ["pytest"]
+docs = ["sphinx", "sphinx-autodoc-typehints", "furo"]
 
 [project.urls]
 github = "https://github.com/ihmeuw-msca/bop_pipeline"
@@ -23,3 +24,9 @@ github = "https://github.com/ihmeuw-msca/bop_pipeline"
 [project.scripts]
 continuous_pipeline = "bop_pipeline.continuous_pipeline.__main__:main"
 dichotomous_pipeline = "bop_pipeline.dichotomous_pipeline.__main__:main"
+
+[tool.sphinx]
+project = "modrover"
+author = "IHME Math Sciences"
+copyright = "2023, IHME Math Sciences"
+version = "0.1.0"
