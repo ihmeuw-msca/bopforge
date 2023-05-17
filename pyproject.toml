@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bop_pipeline"
+version = "0.0.3"
+description = "Pipelines for Burden of Proof (BoP) analyses"
+readme = "REDME.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "IHME Math Sciences", email = "ihme.math.sciences@gmail.com" },
+]
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "mrtool", "pplkit"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+github = "https://github.com/ihmeuw-msca/bop_pipeline"
+
+[project.scripts]
+continuous_pipeline = "bop_pipeline.continuous_pipeline.__main__:main"
+dichotomous_pipeline = "bop_pipeline.dichotomous_pipeline.__main__:main"
