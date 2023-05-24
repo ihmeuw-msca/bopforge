@@ -13,6 +13,16 @@ warnings.filterwarnings("ignore")
 
 
 def pre_processing(dataif: DataInterface) -> None:
+    """Pre process and validate the data. If the given bias-covariates is all
+    zero or all one, it will be removed from the covariate selection step. This
+    step will modify the data and the setting file in the result folder.
+
+    Parameters
+    ----------
+    dataif
+        Data interface in charge of file reading and writing.
+
+    """
     name = dataif.result.name
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
