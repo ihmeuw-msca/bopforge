@@ -3,13 +3,12 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from bop_pipeline.utils import get_beta_info, get_gamma_info, get_signal
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, LogCovModel, MRBeRT, MRData
 from mrtool.core.utils import sample_knots
 from pandas import DataFrame
 from scipy.stats import norm
-
-from bop_pipeline.utils import get_beta_info, get_gamma_info, get_signal
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
@@ -67,6 +66,9 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
         **settings["knots_samples"],
     }
     knots_samples = sample_knots(**settings["knots_samples"])
+    # TODO: temporary fix
+    knots_samples[:, 0] = 0.0
+    knots_samples[:, -1] = 1.0
 
     signal_model = MRBeRT(
         data,
@@ -407,11 +409,13 @@ def get_linear_model_summary(
     index = (risk >= summary["risk_score_bounds"][0]) & (
         risk <= summary["risk_score_bounds"][1]
     )
-    sign = np.sign(pred[index].mean())
+    sign = np.sign(pred)
     if np.any(np.prod(inner_ui[:, index], axis=0) < 0):
         summary["score"] = float("nan")
     else:
-        summary["score"] = float((sign * burden_of_proof[:, index].mean(axis=1)).min())
+        summary["score"] = float(
+            ((sign * burden_of_proof)[:, index].mean(axis=1)).min()
+        )
 
     # compute the publication bias
     index = df.is_outlier == 0
@@ -424,6 +428,7 @@ def get_linear_model_summary(
     r_sd = 1 / np.sqrt(weighted_residual.size)
     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
     summary["pub_bias"] = int(pval < 0.05)
+    summary["pub_bias_p_val"] = float(pval)
 
     return summary
 
@@ -801,6 +806,4 @@ def _plot_funnel(
     ax.set_xlabel("residual")
     ax.set_ylabel("residual sd")
 
-    return ax
-    return ax
     return ax
