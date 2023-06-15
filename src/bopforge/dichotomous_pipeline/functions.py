@@ -87,10 +87,6 @@ def get_signal_model_summary(name: str, df: DataFrame) -> dict:
     """
     summary = {
         "name": name,
-        "rei_id": int(df.rei_id.values[0]),
-        "cause_id": int(df.cause_id.values[0]),
-        "bundle_id": int(df.bundle_id.values[0]),
-        "bundle_version_id": int(df.bundle_version_id.values[0]),
         "risk_type": str(df.risk_type.values[0]),
     }
     return summary
@@ -259,6 +255,7 @@ def get_linear_model_summary(
     r_sd = 1 / np.sqrt(weighted_residual.size)
     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
     summary["pub_bias"] = int(pval < 0.05)
+    summary["pub_bias_pval"] = float(pval)
 
     return summary
 
