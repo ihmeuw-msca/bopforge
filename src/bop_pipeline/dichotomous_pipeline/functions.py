@@ -1,12 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from bop_pipeline.utils import get_beta_info, get_gamma_info
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
-
-from bop_pipeline.utils import get_beta_info, get_gamma_info
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
@@ -266,7 +265,7 @@ def get_linear_model_summary(
 
 def get_draws(
     settings: dict,
-    linear_model: MRBRT,
+    summary: dict,
 ) -> tuple[DataFrame, DataFrame]:
     """Create effect draws for the pipeline.
 
@@ -274,8 +273,8 @@ def get_draws(
     ----------
     settings
         Settings for complete the summary.
-    linear_model
-        Fitted linear model for effect.
+    summary
+        Summary of the models.
 
     Returns
     -------
@@ -283,8 +282,8 @@ def get_draws(
         Inner and outer draw files.
 
     """
-    beta_info = get_beta_info(linear_model, cov_name="intercept")
-    gamma_info = get_gamma_info(linear_model)
+    beta_info = summary["beta"]
+    gamma_info = summary["gamma"]
     inner_beta_sd = beta_info[1]
     outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     inner_beta_samples = np.random.normal(
@@ -307,7 +306,7 @@ def get_draws(
 
 def get_quantiles(
     settings: dict,
-    linear_model: MRBRT,
+    summary: dict,
 ) -> tuple[DataFrame, DataFrame]:
     """Create effect quantiles for the pipeline.
 
@@ -317,8 +316,6 @@ def get_quantiles(
         The settings for complete the summary.
     summary
         The completed summary file.
-    linear_model
-        Fitted linear model.
 
     Returns
     -------
@@ -326,8 +323,8 @@ def get_quantiles(
         Inner and outer quantile files.
 
     """
-    beta_info = get_beta_info(linear_model, cov_name="intercept")
-    gamma_info = get_gamma_info(linear_model)
+    beta_info = summary["beta"]
+    gamma_info = summary["gamma"]
     inner_beta_sd = beta_info[1]
     outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     inner_beta_quantiles = norm.ppf(

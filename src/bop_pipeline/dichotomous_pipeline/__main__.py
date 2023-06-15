@@ -3,26 +3,16 @@ import warnings
 from argparse import ArgumentParser
 from pathlib import Path
 
-import numpy as np
-from pplkit.data.interface import DataInterface
-
 import bop_pipeline.dichotomous_pipeline.functions as functions
+import numpy as np
 from bop_pipeline.utils import fill_dict
+from pplkit.data.interface import DataInterface
 
 warnings.filterwarnings("ignore")
 
 
-def pre_processing(dataif: DataInterface) -> None:
-    """Pre process and validate the data. If the given bias-covariates is all
-    zero or all one, it will be removed from the covariate selection step. This
-    step will modify the data and the setting file in the result folder.
-
-    Parameters
-    ----------
-    dataif
-        Data interface in charge of file reading and writing.
-
-    """
+def pre_processing(result_folder: Path) -> None:
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     # load data
@@ -52,7 +42,7 @@ def pre_processing(dataif: DataInterface) -> None:
     dataif.dump_result(all_settings, "settings.yaml")
 
 
-def fit_signal_model(dataif: DataInterface) -> None:
+def fit_signal_model(result_folder: Path) -> None:
     """Fit signal model. This step involves, trimming, but does not use a mixed
     effect model. The goal is to get the strength of prior for the covariate
     selection step and identifying all the outliers. A summary file will be
@@ -64,6 +54,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     # load data
@@ -86,7 +77,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
     dataif.dump_result(summary, "summary.yaml")
 
 
-def select_bias_covs(dataif: DataInterface) -> None:
+def select_bias_covs(result_folder: Path) -> None:
     """Select the bias covariates. In this step, we first fit a linear model to
     get the prior strength of the bias-covariates. And then we use `CovFinder`
     to select important bias-covariates. A summary of the result will be
@@ -98,6 +89,7 @@ def select_bias_covs(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -119,7 +111,7 @@ def select_bias_covs(dataif: DataInterface) -> None:
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-def fit_linear_model(dataif: DataInterface) -> None:
+def fit_linear_model(result_folder: Path) -> None:
     """Fit the final linear mixed effect model for the process. We will fit the
     linear model using selected bias covariates in this step. And we will create
     draws and quantiles for the effects. A single panels figure will be plotted
@@ -132,6 +124,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -147,10 +140,10 @@ def fit_linear_model(dataif: DataInterface) -> None:
 
     summary = functions.get_linear_model_summary(summary, df, linear_model)
 
-    df_inner_draws, df_outer_draws = functions.get_draws(settings, linear_model)
+    df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
     df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-        settings, linear_model
+        settings, summary
     )
 
     fig = functions.plot_linear_model(summary, df)
@@ -164,7 +157,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
-def main() -> None:
+def main(args=None) -> None:
     parser = ArgumentParser(description="Dichotomous evidence score pipeline.")
     parser.add_argument(
         "-i", "--input", type=str, required=True, help="Input data folder"
@@ -188,7 +181,7 @@ def main() -> None:
         nargs="+",
         help="Included actions, default all actions",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     i_dir, o_dir = Path(args.input), Path(args.output)
     pairs, actions = args.pairs, args.actions
@@ -232,10 +225,9 @@ def main() -> None:
         dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
         np.random.seed(pair_settings["seed"])
-        pair_dataif = DataInterface(result=pair_o_dir)
-        pre_processing(pair_dataif)
+        pre_processing(pair_o_dir)
         for action in actions:
-            globals()[action](pair_dataif)
+            globals()[action](pair_o_dir)
 
 
 if __name__ == "__main__":

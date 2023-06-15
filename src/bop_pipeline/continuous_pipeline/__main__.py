@@ -3,26 +3,15 @@ import warnings
 from argparse import ArgumentParser
 from pathlib import Path
 
-import numpy as np
-from pplkit.data.interface import DataInterface
-
 import bop_pipeline.continuous_pipeline.functions as functions
+import numpy as np
 from bop_pipeline.utils import fill_dict
+from pplkit.data.interface import DataInterface
 
 warnings.filterwarnings("ignore")
 
 
 def pre_processing(dataif: DataInterface) -> None:
-    """Pre process and validate the data. If the given bias-covariates is all
-    zero or all one, it will be removed from the covariate selection step. This
-    step will modify the data and the setting file in the result folder.
-
-    Parameters
-    ----------
-    dataif
-        Data interface in charge of file reading and writing.
-
-    """
     name = dataif.result.name
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
@@ -174,7 +163,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
-def main() -> None:
+def main(args=None) -> None:
     parser = ArgumentParser(description="Continuous evidence score pipeline.")
     parser.add_argument(
         "-i", "--input", type=str, required=True, help="Input data folder"
@@ -198,7 +187,7 @@ def main() -> None:
         nargs="+",
         help="Included actions, default all actions",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     i_dir, o_dir = Path(args.input), Path(args.output)
     pairs, actions = args.pairs, args.actions
