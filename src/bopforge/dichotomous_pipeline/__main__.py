@@ -157,35 +157,8 @@ def fit_linear_model(result_folder: Path) -> None:
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
-def main(args=None) -> None:
-    parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
-    parser.add_argument(
-        "-i", "--input", type=str, required=True, help="Input data folder"
-    )
-    parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Output result folder"
-    )
-    parser.add_argument(
-        "-p",
-        "--pairs",
-        required=False,
-        default=None,
-        nargs="+",
-        help="Included pairs, default all pairs",
-    )
-    parser.add_argument(
-        "-a",
-        "--actions",
-        choices=["fit_signal_model", "select_bias_covs", "fit_linear_model"],
-        default=None,
-        nargs="+",
-        help="Included actions, default all actions",
-    )
-    args = parser.parse_args(args)
-
-    i_dir, o_dir = Path(args.input), Path(args.output)
-    pairs, actions = args.pairs, args.actions
-
+def run(i_dir: str, o_dir: str, pairs: list[str], actions: list[str]) -> None:
+    i_dir, o_dir = Path(i_dir), Path(o_dir)
     # check the input and output folders
     if not i_dir.exists():
         raise FileNotFoundError("input data folder not found")
@@ -228,6 +201,35 @@ def main(args=None) -> None:
         pre_processing(pair_o_dir)
         for action in actions:
             globals()[action](pair_o_dir)
+
+
+def main(args=None) -> None:
+    parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
+    parser.add_argument(
+        "-i", "--input", type=str, required=True, help="Input data folder"
+    )
+    parser.add_argument(
+        "-o", "--output", type=str, required=True, help="Output result folder"
+    )
+    parser.add_argument(
+        "-p",
+        "--pairs",
+        required=False,
+        default=None,
+        nargs="+",
+        help="Included pairs, default all pairs",
+    )
+    parser.add_argument(
+        "-a",
+        "--actions",
+        choices=["fit_signal_model", "select_bias_covs", "fit_linear_model"],
+        default=None,
+        nargs="+",
+        help="Included actions, default all actions",
+    )
+    args = parser.parse_args(args)
+
+    run(args.input, args.output, args.pairs, args.actions)    
 
 
 if __name__ == "__main__":
