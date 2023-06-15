@@ -5,11 +5,7 @@ This name will be used through out the process.
 
 **Columns of the data frame**
 * `seq`: unique row id
-* `rei_id`: risk id
-* `cause_id`: cause id
 * `study_id`: usually equivalent with `nid` but with minor exceptions
-* `bundle_id`: dataset identifier
-* `bundle_version_id`: dataset identifier at a given point in time
 * `risk_type`: type of the risk, continuous, dichotomous, etc
 * `risk_unit`: Unit of the risk exposure
 * `ln_rr`: mean of log relative risk
