@@ -3,7 +3,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bop_pipeline"
+name = "bopforge"
 version = "0.0.3"
 description = "Pipelines for Burden of Proof (BoP) analyses"
 readme = "REDME.md"
@@ -19,11 +19,11 @@ test = ["pytest"]
 docs = ["sphinx", "sphinx-autodoc-typehints", "furo"]
 
 [project.urls]
-github = "https://github.com/ihmeuw-msca/bop_pipeline"
+github = "https://github.com/ihmeuw-msca/bopforge"
 
 [project.scripts]
-continuous_pipeline = "bop_pipeline.continuous_pipeline.__main__:main"
-dichotomous_pipeline = "bop_pipeline.dichotomous_pipeline.__main__:main"
+continuous_pipeline = "bopforge.continuous_pipeline.__main__:main"
+dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
 
 [tool.sphinx]
 project = "modrover"

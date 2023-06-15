@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from bop_pipeline.utils import get_beta_info, get_gamma_info
+from bopforge.utils import get_beta_info, get_gamma_info
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame

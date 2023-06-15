@@ -3,7 +3,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from bop_pipeline.utils import get_beta_info, get_gamma_info, get_signal
+from bopforge.utils import get_beta_info, get_gamma_info, get_signal
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, LogCovModel, MRBeRT, MRData
 from mrtool.core.utils import sample_knots

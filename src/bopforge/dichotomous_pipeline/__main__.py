@@ -3,16 +3,19 @@ import warnings
 from argparse import ArgumentParser
 from pathlib import Path
 
-import bop_pipeline.continuous_pipeline.functions as functions
+import bopforge.dichotomous_pipeline.functions as functions
 import numpy as np
-from bop_pipeline.utils import fill_dict
+from bopforge.utils import fill_dict
 from pplkit.data.interface import DataInterface
 
 warnings.filterwarnings("ignore")
 
 
-def pre_processing(dataif: DataInterface) -> None:
+def pre_processing(result_folder: Path) -> None:
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
+
+    # load data
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]["cov_finder"]
@@ -39,10 +42,10 @@ def pre_processing(dataif: DataInterface) -> None:
     dataif.dump_result(all_settings, "settings.yaml")
 
 
-def fit_signal_model(dataif: DataInterface) -> None:
-    """Fit signal model. This step involves, non-linear curve fitting and
-    trimming, but does not use a mixed effect model. A single panel plot will be
-    created for vetting the fit of the signal and a summary file will be
+def fit_signal_model(result_folder: Path) -> None:
+    """Fit signal model. This step involves, trimming, but does not use a mixed
+    effect model. The goal is to get the strength of prior for the covariate
+    selection step and identifying all the outliers. A summary file will be
     generated to store the results of signal model.
 
     Parameters
@@ -51,29 +54,30 @@ def fit_signal_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
+    # load data
     df = dataif.load_result(f"{name}.csv")
 
+    # load settings
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["fit_signal_model"]
 
     signal_model = functions.get_signal_model(settings, df)
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
-    df = functions.convert_bc_to_em(df, signal_model)
+    df = functions.add_cols(df, signal_model)
 
-    summary = functions.get_signal_model_summary(name, all_settings, df)
+    summary = functions.get_signal_model_summary(name, df)
 
-    fig = functions.plot_signal_model(name, summary, df, signal_model)
-
+    # save results
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(signal_model, "signal_model.pkl")
     dataif.dump_result(summary, "summary.yaml")
-    fig.savefig(dataif.result / "signal_model.pdf", bbox_inches="tight")
 
 
-def select_bias_covs(dataif: DataInterface) -> None:
+def select_bias_covs(result_folder: Path) -> None:
     """Select the bias covariates. In this step, we first fit a linear model to
     get the prior strength of the bias-covariates. And then we use `CovFinder`
     to select important bias-covariates. A summary of the result will be
@@ -85,6 +89,7 @@ def select_bias_covs(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -93,8 +98,7 @@ def select_bias_covs(dataif: DataInterface) -> None:
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]
 
-    cov_finder_linear_model = functions.get_cov_finder_linear_model(df)
-    cov_finder_linear_model.fit_model()
+    cov_finder_linear_model = dataif.load_result("signal_model.pkl")
 
     cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model)
     cov_finder.select_covs(verbose=True)
@@ -103,18 +107,16 @@ def select_bias_covs(dataif: DataInterface) -> None:
         cov_finder_linear_model, cov_finder
     )
 
-    # save results
     dataif.dump_result(cov_finder_result, "cov_finder_result.yaml")
-    dataif.dump_result(cov_finder_linear_model, "cov_finder_linear_model.pkl")
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-def fit_linear_model(dataif: DataInterface) -> None:
+def fit_linear_model(result_folder: Path) -> None:
     """Fit the final linear mixed effect model for the process. We will fit the
-    linear model using the signal and selected bias covariates in this step.
-    And we will create draws and quantiles for the risk curve. A two panels
-    figure will be plotted to show the fit and all the important result
-    information is documented in the `summary.yaml` file.
+    linear model using selected bias covariates in this step. And we will create
+    draws and quantiles for the effects. A single panels figure will be plotted
+    to show the fit and all the important result information is documented in
+    the `summary.yaml` file.
 
     Parameters
     ----------
@@ -122,6 +124,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -131,28 +134,19 @@ def fit_linear_model(dataif: DataInterface) -> None:
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["complete_summary"]
     summary = dataif.load_result("summary.yaml")
-    signal_model = dataif.load_result("signal_model.pkl")
 
     linear_model = functions.get_linear_model(df_train, cov_finder_result)
     linear_model.fit_model()
 
-    summary = functions.get_linear_model_summary(
-        settings,
-        summary,
-        df,
-        signal_model,
-        linear_model,
-    )
+    summary = functions.get_linear_model_summary(summary, df, linear_model)
 
-    df_inner_draws, df_outer_draws = functions.get_draws(
-        settings, summary, signal_model
-    )
+    df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
     df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-        settings, summary, signal_model
+        settings, summary
     )
 
-    fig = functions.plot_linear_model(name, summary, df, signal_model, linear_model)
+    fig = functions.plot_linear_model(summary, df)
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")
@@ -164,7 +158,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
 
 
 def main(args=None) -> None:
-    parser = ArgumentParser(description="Continuous evidence score pipeline.")
+    parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
     parser.add_argument(
         "-i", "--input", type=str, required=True, help="Input data folder"
     )
@@ -231,10 +225,9 @@ def main(args=None) -> None:
         dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
         np.random.seed(pair_settings["seed"])
-        pair_dataif = DataInterface(result=pair_o_dir)
-        pre_processing(pair_dataif)
+        pre_processing(pair_o_dir)
         for action in actions:
-            globals()[action](pair_dataif)
+            globals()[action](pair_o_dir)
 
 
 if __name__ == "__main__":
