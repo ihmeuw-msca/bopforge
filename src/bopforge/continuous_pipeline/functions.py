@@ -424,7 +424,7 @@ def get_linear_model_summary(
     r_sd = 1 / np.sqrt(weighted_residual.size)
     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
     summary["pub_bias"] = int(pval < 0.05)
-    summary["pub_bias_p_val"] = float(pval)
+    summary["pub_bias_pval"] = float(pval)
 
     return summary
 
