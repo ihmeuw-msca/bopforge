@@ -140,10 +140,10 @@ def fit_linear_model(result_folder: Path) -> None:
 
     summary = functions.get_linear_model_summary(summary, df, linear_model)
 
-    df_inner_draws, df_outer_draws = functions.get_draws(settings, linear_model)
+    df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
     df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-        settings, linear_model
+        settings, summary
     )
 
     fig = functions.plot_linear_model(summary, df)
