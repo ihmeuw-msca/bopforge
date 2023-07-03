@@ -161,7 +161,7 @@ def run(
     o_dir: str,
     pairs: list[str],
     actions: list[str],
-    metedata: dict,
+    metadata: dict,
 ) -> None:
     i_dir, o_dir = Path(i_dir), Path(o_dir)
     # check the input and output folders
