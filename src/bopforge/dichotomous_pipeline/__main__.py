@@ -1,3 +1,4 @@
+import os
 import shutil
 import warnings
 from argparse import ArgumentParser
@@ -211,10 +212,14 @@ def run(
 def main(args=None) -> None:
     parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
     parser.add_argument(
-        "-i", "--input", type=str, required=True, help="Input data folder"
+        "-i", "--input", type=os.path.abspath, required=True, help="Input data folder"
     )
     parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Output result folder"
+        "-o",
+        "--output",
+        type=os.path.abspath,
+        required=True,
+        help="Output result folder",
     )
     parser.add_argument(
         "-p",
