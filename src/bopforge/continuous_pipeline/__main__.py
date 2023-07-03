@@ -250,7 +250,7 @@ def main(args=None) -> None:
     parser.add_argument(
         "-m",
         "--metadata",
-        type=dict,
+        type=lambda x: dict(eval(x)),
         required=False,
         default={},
         help="User defined metadata",
