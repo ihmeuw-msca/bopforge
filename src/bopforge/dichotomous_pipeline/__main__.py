@@ -6,7 +6,7 @@ from pathlib import Path
 
 import bopforge.dichotomous_pipeline.functions as functions
 import numpy as np
-from bopforge.utils import fill_dict
+from bopforge.utils import fill_dict, ParseKwargs
 from pplkit.data.interface import DataInterface
 
 warnings.filterwarnings("ignore")
@@ -240,9 +240,10 @@ def main(args=None) -> None:
     parser.add_argument(
         "-m",
         "--metadata",
-        type=lambda x: dict(eval(x)),
+        nargs="*",
         required=False,
         default={},
+        action=ParseKwargs,
         help="User defined metadata",
     )
     args = parser.parse_args(args)
