@@ -105,6 +105,27 @@ class ParseKwargs(argparse.Action):
         values: list[str],
         option_string: Optional[str] = None,
     ):
+        """Parse keyword arguments into a dictionary. Be sure to set `nargs='*'`
+        in the ArgumentParser to parse the input as a list of strings, otherwise
+        this function will break. If provided string does not the form of
+        '{key}={value}', an error will be raised.
+
+        Example
+        -------
+
+        .. code-block:: python
+
+            parser = ArgumentParser()
+            parser.add_argument(
+                "-m",
+                "--metadata",
+                nargs="*",
+                required=False,
+                default={},
+                action=ParseKwargs,
+            )
+
+        """
         data = dict()
         for value in values:
             data_key, _, data_value = value.partition("=")
