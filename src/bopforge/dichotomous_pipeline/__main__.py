@@ -1,3 +1,4 @@
+import os
 import shutil
 import warnings
 from argparse import ArgumentParser
@@ -5,7 +6,7 @@ from pathlib import Path
 
 import bopforge.dichotomous_pipeline.functions as functions
 import numpy as np
-from bopforge.utils import fill_dict
+from bopforge.utils import fill_dict, ParseKwargs
 from pplkit.data.interface import DataInterface
 
 warnings.filterwarnings("ignore")
@@ -142,9 +143,7 @@ def fit_linear_model(result_folder: Path) -> None:
 
     df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
-    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-        settings, summary
-    )
+    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(settings, summary)
 
     fig = functions.plot_linear_model(summary, df)
 
@@ -157,7 +156,13 @@ def fit_linear_model(result_folder: Path) -> None:
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
-def run(i_dir: str, o_dir: str, pairs: list[str], actions: list[str]) -> None:
+def run(
+    i_dir: str,
+    o_dir: str,
+    pairs: list[str],
+    actions: list[str],
+    metadata: dict,
+) -> None:
     i_dir, o_dir = Path(i_dir), Path(o_dir)
     # check the input and output folders
     if not i_dir.exists():
@@ -195,6 +200,7 @@ def run(i_dir: str, o_dir: str, pairs: list[str], actions: list[str]) -> None:
             pair_settings = settings["default"]
         else:
             pair_settings = fill_dict(settings[pair], settings["default"])
+        pair_settings["metadata"] = metadata
         dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
         np.random.seed(pair_settings["seed"])
@@ -206,10 +212,14 @@ def run(i_dir: str, o_dir: str, pairs: list[str], actions: list[str]) -> None:
 def main(args=None) -> None:
     parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
     parser.add_argument(
-        "-i", "--input", type=str, required=True, help="Input data folder"
+        "-i", "--input", type=os.path.abspath, required=True, help="Input data folder"
     )
     parser.add_argument(
-        "-o", "--output", type=str, required=True, help="Output result folder"
+        "-o",
+        "--output",
+        type=os.path.abspath,
+        required=True,
+        help="Output result folder",
     )
     parser.add_argument(
         "-p",
@@ -227,9 +237,18 @@ def main(args=None) -> None:
         nargs="+",
         help="Included actions, default all actions",
     )
+    parser.add_argument(
+        "-m",
+        "--metadata",
+        nargs="*",
+        required=False,
+        default={},
+        action=ParseKwargs,
+        help="User defined metadata",
+    )
     args = parser.parse_args(args)
 
-    run(args.input, args.output, args.pairs, args.actions)    
+    run(args.input, args.output, args.pairs, args.actions, args.metadata)
 
 
 if __name__ == "__main__":
