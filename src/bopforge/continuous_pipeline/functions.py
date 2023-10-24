@@ -43,6 +43,7 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
     )
     settings["cov_model"] = {
         **dict(
+            type="log",
             use_re=False,
             use_spline=True,
             prior_spline_funval_uniform=[-0.999999, 19],
@@ -50,7 +51,17 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
         ),
         **settings["cov_model"],
     }
-    cov_model = LogCovModel(
+    type_name = settings["cov_model"].pop("type")
+    if type_name == "log":
+        type_class = LogCovModel
+    elif type_name == "linear":
+        type_class = LinearCovModel
+    else:
+        raise TypeError(
+            f"Unrecognized cov_model type='{type_name}', "
+             "can only choose from 'log' or 'linear'"
+        )
+    cov_model = type_class(
         alt_cov=["alt_risk_lower", "alt_risk_upper"],
         ref_cov=["ref_risk_lower", "ref_risk_upper"],
         **settings["cov_model"],
