@@ -57,15 +57,19 @@ def fit_signal_model(dataif: DataInterface) -> None:
     df = dataif.load_result(f"{name}.csv")
 
     all_settings = dataif.load_result("settings.yaml")
+    settings = all_settings["fit_signal_model"]
 
     signal_model = functions.get_signal_model(all_settings, df)
-    signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
+    signal_model.fit_model(**{
+        **dict(outer_step_size=200, outer_max_iter=100),
+        **settings.get("fit_model", {}),
+    })
 
     df = functions.convert_bc_to_em(df, signal_model)
 
     summary = functions.get_signal_model_summary(name, all_settings, df)
 
-    fig = functions.plot_signal_model(name, summary, df, signal_model)
+    fig = functions.plot_signal_model(name, all_settings, summary, df, signal_model)
 
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(signal_model, "signal_model.pkl")
@@ -137,7 +141,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
     linear_model.fit_model()
 
     summary = functions.get_linear_model_summary(
-        settings,
+        all_settings,
         summary,
         df,
         signal_model,
@@ -152,7 +156,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
         settings, summary, signal_model
     )
 
-    fig = functions.plot_linear_model(name, summary, df, signal_model, linear_model)
+    fig = functions.plot_linear_model(name, all_settings, summary, df, signal_model, linear_model)
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")

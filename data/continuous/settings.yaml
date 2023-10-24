@@ -46,6 +46,10 @@ default:
     signal_model:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
+    # settings for the optimizer
+    fit_model:
+      outer_step_size: 200
+      outer_max_iter: 100
   select_bias_covs:
     # settings for covariate selection
     cov_finder:

@@ -383,7 +383,7 @@ def get_linear_model(all_settings: dict, df: DataFrame, cov_finder_result: dict)
 
 
 def get_linear_model_summary(
-    settings: dict,
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
     signal_model: MRBeRT,
@@ -393,8 +393,8 @@ def get_linear_model_summary(
 
     Parameters
     ----------
-    settings
-        Settings for the complete summary section.
+    all_settings
+        Dictionary contains all the settings.
     summary
         Summary from the signal model.
     df
@@ -411,6 +411,8 @@ def get_linear_model_summary(
 
     """
     # load summary
+    data_settings = _get_data_settings(all_settings)
+    settings = all_settings["complete_summary"]
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
 
     # solution of the final model
@@ -455,9 +457,9 @@ def get_linear_model_summary(
 
     # compute the publication bias
     index = df.is_outlier == 0
-    residual = df.ln_rr.values[index] - df.signal.values[index] * beta_info[0]
+    residual = df[data_settings["obs"]].values[index] - df.signal.values[index] * beta_info[0]
     residual_sd = np.sqrt(
-        df.ln_rr_se.values[index] ** 2 + df.re_signal.values[index] ** 2 * gamma_info[0]
+        df[data_settings["obs_se"]].values[index] ** 2 + df.re_signal.values[index] ** 2 * gamma_info[0]
     )
     weighted_residual = residual / residual_sd
     r_mean = weighted_residual.mean()
@@ -599,7 +601,7 @@ def get_quantiles(
 
 
 def plot_signal_model(
-    name: str, summary: dict, df: DataFrame, signal_model: MRBeRT
+    name: str, all_settings: dict, summary: dict, df: DataFrame, signal_model: MRBeRT
 ) -> Figure:
     """Plot the signal model
 
@@ -607,6 +609,8 @@ def plot_signal_model(
     ----------
     name
         Name of the pair.
+    all_settings
+        Dictionary contains all the settings.
     summary
         Summary from the signal model.
     df
@@ -624,7 +628,7 @@ def plot_signal_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax, signal_model=signal_model)
+    _plot_data(name, all_settings, summary, df, ax, signal_model=signal_model)
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
@@ -638,6 +642,7 @@ def plot_signal_model(
 
 def plot_linear_model(
     name: str,
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
     signal_model: MRBeRT,
@@ -649,6 +654,8 @@ def plot_linear_model(
     ----------
     name
         Name of the pair.
+    all_settings
+        Dictionary contains all the settings.
     summary
         Completed summary file.
     df
@@ -668,7 +675,7 @@ def plot_linear_model(
     fig, ax = plt.subplots(1, 2, figsize=(16, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax[0], signal_model, linear_model)
+    _plot_data(name, all_settings, summary, df, ax[0], signal_model, linear_model)
 
     # plot curve and uncertainty
     beta = summary["beta"]
@@ -700,13 +707,14 @@ def plot_linear_model(
     ax[0].fill_between(risk, pred[1], pred[3], color="gray", alpha=0.2)
 
     # plot funnel
-    _plot_funnel(summary, df, ax[1])
+    _plot_funnel(all_settings, summary, df, ax[1])
 
     return fig
 
 
 def _plot_data(
     name: str,
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
     ax: Axes,
@@ -719,6 +727,8 @@ def _plot_data(
     ----------
     name
         Name of the pair.
+    all_settings
+        Dictionary contains all the settings.
     summary
         The summary of the signal model.
     ax
@@ -737,6 +747,7 @@ def _plot_data(
         Return the axes back for further plotting.
 
     """
+    data_settings = _get_data_settings(all_settings)
     # compute the position of the reference point
     ref_risk = df[["ref_risk_lower", "ref_risk_upper"]].values.mean(axis=1)
     alt_risk = df[["alt_risk_lower", "alt_risk_upper"]].values.mean(axis=1)
@@ -752,7 +763,7 @@ def _plot_data(
     )
     if linear_model is not None:
         ref_ln_rr *= linear_model.beta_soln[0]
-    alt_ln_rr = ref_ln_rr + df.ln_rr.values
+    alt_ln_rr = ref_ln_rr + df[data_settings["obs"]].values
 
     # shift data position normalize to tmrel
     if summary["normalize_to_tmrel"]:
@@ -765,7 +776,7 @@ def _plot_data(
     ax.scatter(
         alt_risk,
         alt_ln_rr,
-        s=5 / df.ln_rr_se.values,
+        s=5 / df[data_settings["obs_se"]].values,
         color="#008080",
         alpha=0.5,
         edgecolor="none",
@@ -773,7 +784,7 @@ def _plot_data(
     ax.scatter(
         alt_risk[index],
         alt_ln_rr[index],
-        s=5 / df.ln_rr_se.values[index],
+        s=5 / df[data_settings["obs_se"]].values[index],
         color="red",
         alpha=0.5,
         marker="x",
@@ -796,6 +807,7 @@ def _plot_data(
 
 
 def _plot_funnel(
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
     ax: Axes,
@@ -804,6 +816,8 @@ def _plot_funnel(
 
     Parameters
     ----------
+    all_settings
+        Dictionary contains all the settings.
     summary
         Complete summary file.
     df
@@ -817,10 +831,11 @@ def _plot_funnel(
         Return the axes back for further plotting.
 
     """
+    data_settings = _get_data_settings(all_settings)
     # add residual information
     beta, gamma = summary["beta"], summary["gamma"]
-    residual = df.ln_rr.values - df.signal.values * beta[0]
-    residual_sd = np.sqrt(df.ln_rr_se.values**2 + df.re_signal.values**2 * gamma[0])
+    residual = df[data_settings["obs"]].values - df.signal.values * beta[0]
+    residual_sd = np.sqrt(df[data_settings["obs_se"]].values**2 + df.re_signal.values**2 * gamma[0])
 
     # plot funnel
     index = df.is_outlier == 1
