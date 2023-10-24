@@ -2,7 +2,7 @@
 Ultility functions
 """
 import argparse
-from typing import Any, Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional
 
 import numpy as np
 from mrtool import MRBRT, MRBeRT, MRData

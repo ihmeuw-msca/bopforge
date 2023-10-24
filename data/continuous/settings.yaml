@@ -12,6 +12,12 @@ diet_veg-cvd_ihd:
 default:
   # random seed
   seed: 0
+  # data description
+  data:
+    obs: "ln_rr"
+    obs_se: "ln_rr_se"
+    study_id: "study_id"
+    data_id: "seq"
   fit_signal_model:
     # signal model covariate model settings, contains configurations of the spline and its priors
     cov_model:

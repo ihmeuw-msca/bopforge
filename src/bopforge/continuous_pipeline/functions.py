@@ -11,12 +11,49 @@ from pandas import DataFrame
 from scipy.stats import norm
 
 
-def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
+def _get_data_settings(all_settings: dict) -> dict:
+    data_settings = {
+        **dict(
+            obs="ln_rr",
+            obs_se="ln_rr_se",
+            study_id="study_id",
+            data_id="seq",
+        ),
+        **all_settings.get("data", {}),
+    }
+    return data_settings
+
+def _get_cov_model_settings(all_settings: dict) -> dict:
+    settings = all_settings["fit_signal_model"]
+    cov_model_settings = {
+        **dict(
+            type="log",
+            use_re=False,
+            use_spline=True,
+            prior_spline_funval_uniform=[-0.999999, 19],
+            prior_spline_num_constraint_points=100,
+        ),
+        **settings["cov_model"],
+    }
+    return cov_model_settings
+
+def _get_knots_samples_settings(all_settings: dict) -> dict:
+    settings = all_settings["fit_signal_model"]
+    knots_samples_settings = {
+        **dict(
+            num_knots=len(settings["cov_model"]["spline_knots"]) - 2,
+        ),
+        **settings["knots_samples"],
+    }
+    return knots_samples_settings
+
+
+def get_signal_model(all_settings: dict, df: DataFrame) -> MRBeRT:
     """Create signal model for the risk curve.
 
     Parameters
     ----------
-    settings
+    all_settings
         Dictionary contains all the settings.
     df
         Data frame contains the training data.
@@ -27,56 +64,44 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
         Ensemble version of the mrbrt model.
 
     """
+    settings = all_settings["fit_signal_model"]
+    data_settings = _get_data_settings(all_settings)
     data = MRData()
     data.load_df(
         df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
+        col_obs=data_settings["obs"],
+        col_obs_se=data_settings["obs_se"],
         col_covs=[
             "ref_risk_lower",
             "ref_risk_upper",
             "alt_risk_lower",
             "alt_risk_upper",
         ],
-        col_study_id="study_id",
-        col_data_id="seq",
+        col_study_id=data_settings["study_id"],
+        col_data_id=data_settings["data_id"],
     )
-    settings["cov_model"] = {
-        **dict(
-            type="log",
-            use_re=False,
-            use_spline=True,
-            prior_spline_funval_uniform=[-0.999999, 19],
-            prior_spline_num_constraint_points=100,
-        ),
-        **settings["cov_model"],
-    }
-    type_name = settings["cov_model"].pop("type")
+    cov_model_settings = _get_cov_model_settings(all_settings)
+    type_name = cov_model_settings.pop("type")
     if type_name == "log":
         type_class = LogCovModel
     elif type_name == "linear":
         type_class = LinearCovModel
     else:
         raise TypeError(
-            f"Unrecognized cov_model type='{type_name}', "
-             "can only choose from 'log' or 'linear'"
+            f"Unrecognized cov_model type='{type_name}', can only choose from "
+            "'log' or 'linear'"
         )
     cov_model = type_class(
         alt_cov=["alt_risk_lower", "alt_risk_upper"],
         ref_cov=["ref_risk_lower", "ref_risk_upper"],
-        **settings["cov_model"],
+        **cov_model_settings,
     )
 
     for arg in ["knot_bounds", "min_dist"]:
         if not np.isscalar(settings["knots_samples"][arg]):
             settings["knots_samples"][arg] = np.asarray(settings["knots_samples"][arg])
-    settings["knots_samples"] = {
-        **dict(
-            num_knots=len(settings["cov_model"]["spline_knots"]) - 2,
-        ),
-        **settings["knots_samples"],
-    }
-    knots_samples = sample_knots(**settings["knots_samples"])
+    knots_samples_settings = _get_knots_samples_settings(all_settings)
+    knots_samples = sample_knots(**knots_samples_settings)
     # TODO: temporary fix
     knots_samples[:, 0] = 0.0
     knots_samples[:, -1] = 1.0
@@ -193,12 +218,14 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
     return summary
 
 
-def get_cov_finder_linear_model(df: DataFrame) -> MRBRT:
+def get_cov_finder_linear_model(all_settings: dict, df: DataFrame) -> MRBRT:
     """Greate the linear model for the CovFinder to determine the strength of
     the prior on the bias covariates.
 
     Parameters
     ----------
+    all_settings
+        Dictionary contains all the settings.
     df
         Data frame that contains the training data, but without the outlier.
 
@@ -211,14 +238,15 @@ def get_cov_finder_linear_model(df: DataFrame) -> MRBRT:
     col_covs = ["signal", "re_signal"] + [
         col for col in df.columns if col.startswith("em_")
     ]
+    data_settings = _get_data_settings(all_settings)
     data = MRData()
     data.load_df(
         df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
+        col_obs=data_settings["obs"],
+        col_obs_se=data_settings["obs_se"],
         col_covs=col_covs,
-        col_study_id="study_id",
-        col_data_id="seq",
+        col_study_id=data_settings["study_id"],
+        col_data_id=data_settings["data_id"],
     )
     cov_models = [
         LinearCovModel("signal", use_re=False),
@@ -312,7 +340,7 @@ def get_cov_finder_result(
     return cov_finder_result
 
 
-def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
+def get_linear_model(all_settings: dict, df: DataFrame, cov_finder_result: dict) -> MRBRT:
     """Create linear model for risk curve.
 
     Parameters
@@ -328,14 +356,15 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
         The linear model for risk curve.
 
     """
+    data_settings = _get_data_settings(all_settings)
     data = MRData()
     data.load_df(
         df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
+        col_obs=data_settings["obs"],
+        col_obs_se=data_settings["obs_se"],
         col_covs=["signal", "re_signal"] + cov_finder_result["selected_covs"],
-        col_study_id="study_id",
-        col_data_id="seq",
+        col_study_id=data_settings["study_id"],
+        col_data_id=data_settings["data_id"],
     )
     cov_models = [
         LinearCovModel("signal", use_re=False, prior_beta_uniform=[0.0, np.inf]),
