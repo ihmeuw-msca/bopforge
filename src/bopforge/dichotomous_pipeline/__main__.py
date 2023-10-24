@@ -65,8 +65,11 @@ def fit_signal_model(result_folder: Path) -> None:
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["fit_signal_model"]
 
-    signal_model = functions.get_signal_model(settings, df)
-    signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
+    signal_model = functions.get_signal_model(all_settings, df)
+    signal_model.fit_model(**{
+        **dict(outer_step_size=200, outer_max_iter=100),
+        **settings.get("fit_model", {}),
+    })
 
     df = functions.add_cols(df, signal_model)
 
@@ -136,16 +139,16 @@ def fit_linear_model(result_folder: Path) -> None:
     settings = all_settings["complete_summary"]
     summary = dataif.load_result("summary.yaml")
 
-    linear_model = functions.get_linear_model(df_train, cov_finder_result)
+    linear_model = functions.get_linear_model(all_settings, df_train, cov_finder_result)
     linear_model.fit_model()
 
-    summary = functions.get_linear_model_summary(summary, df, linear_model)
+    summary = functions.get_linear_model_summary(all_settings, summary, df, linear_model)
 
     df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
     df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(settings, summary)
 
-    fig = functions.plot_linear_model(summary, df)
+    fig = functions.plot_linear_model(all_settings, summary, df)
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")

@@ -7,14 +7,25 @@ from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
 
+def _get_data_settings(all_settings: dict) -> dict:
+    data_settings = {
+        **dict(
+            obs="ln_rr",
+            obs_se="ln_rr_se",
+            study_id="study_id",
+            data_id="seq",
+        ),
+        **all_settings.get("data", {}),
+    }
+    return data_settings
 
-def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
+def get_signal_model(all_settings: dict, df: DataFrame) -> MRBRT:
     """Create signal model for outliers identification and covariate selection
     step.
 
     Parameters
     ----------
-    settings
+    all_settings
         Dictionary contains all the settings.
     df
         Data frame contains the training data.
@@ -25,15 +36,17 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
         Signal model to access the strength of the prior on the bias-covariate.
 
     """
+    settings = all_settings["fit_signal_model"]
+    data_settings = _get_data_settings(all_settings)
     col_covs = [col for col in df.columns if col.startswith("cov_")]
     data = MRData()
     data.load_df(
         df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
+        col_obs=data_settings["obs"],
+        col_obs_se=data_settings["obs_se"],
         col_covs=col_covs,
-        col_study_id="study_id",
-        col_data_id="seq",
+        col_study_id=data_settings["study_id"],
+        col_data_id=data_settings["data_id"],
     )
     cov_models = [LinearCovModel("intercept", use_re=False)]
 
@@ -170,7 +183,7 @@ def get_cov_finder_result(cov_finder_linear_model: MRBRT, cov_finder: MRBRT) -> 
     return cov_finder_result
 
 
-def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
+def get_linear_model(all_settings: dict, df: DataFrame, cov_finder_result: dict) -> MRBRT:
     """Create linear model for effect.
 
     Parameters
@@ -186,14 +199,15 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
         The linear model for effect.
 
     """
+    data_settings = _get_data_settings(all_settings)
     data = MRData()
     data.load_df(
         df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
+        col_obs=data_settings["obs"],
+        col_obs_se=data_settings["obs_se"],
         col_covs=cov_finder_result["selected_covs"],
-        col_study_id="study_id",
-        col_data_id="seq",
+        col_study_id=data_settings["study_id"],
+        col_data_id=data_settings["data_id"],
     )
     cov_models = [
         LinearCovModel("intercept", use_re=True),
@@ -209,6 +223,7 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
 
 
 def get_linear_model_summary(
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
     linear_model: MRBRT,
@@ -230,6 +245,7 @@ def get_linear_model_summary(
         Summary file contains all necessary information.
 
     """
+    data_settings = _get_data_settings(all_settings)
     beta_info = get_beta_info(linear_model, cov_name="intercept")
     gamma_info = get_gamma_info(linear_model)
     summary["beta"] = [float(beta_info[0]), float(beta_info[1])]
@@ -248,8 +264,8 @@ def get_linear_model_summary(
 
     # compute the publication bias
     index = df.is_outlier == 0
-    residual = df.ln_rr.values[index] - beta_info[0]
-    residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
+    residual = df[data_settings["obs"]].values[index] - beta_info[0]
+    residual_sd = np.sqrt(df[data_settings["obs_se"]].values[index] ** 2 + gamma_info[0])
     weighted_residual = residual / residual_sd
     r_mean = weighted_residual.mean()
     r_sd = 1 / np.sqrt(weighted_residual.size)
@@ -344,6 +360,7 @@ def get_quantiles(
 
 
 def plot_linear_model(
+    all_settings: dict,
     summary: dict,
     df: DataFrame,
 ) -> Figure:
@@ -366,17 +383,19 @@ def plot_linear_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot funnel
-    _plot_funnel(summary, df, ax)
+    _plot_funnel(all_settings, summary, df, ax)
     ax.set_title(summary["name"].replace("-", " / "), loc="left")
 
     return fig
 
 
-def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
+def _plot_funnel(all_settings: dict, summary: dict, df: DataFrame, ax: Axes) -> Axes:
     """Plot the funnel plot
 
     Parameters
     ----------
+    all_settings
+        Dictionary contains all the settings.
     summary
         Complete summary file.
     df
@@ -390,7 +409,7 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
         Return the axes back for further plotting.
 
     """
-
+    data_settings = _get_data_settings(all_settings)
     # add residual information
     beta, gamma = summary["beta"], summary["gamma"]
     beta_inner_sd = beta[1]
@@ -399,18 +418,18 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
     beta_outer = [beta[0] - 1.96 * beta_outer_sd, beta[0] + 1.96 * beta_outer_sd]
 
     # plot data
-    ax.scatter(df.ln_rr, df.ln_rr_se, color="#008080", alpha=0.4, edgecolor="none")
+    ax.scatter(df[data_settings["obs"]], df[data_settings["obs_se"]], color="#008080", alpha=0.4, edgecolor="none")
     outlier_index = df.is_outlier == 1
     ax.scatter(
-        df.ln_rr[outlier_index],
-        df.ln_rr_se[outlier_index],
+        df[data_settings["obs"]][outlier_index],
+        df[data_settings["obs_se"]][outlier_index],
         color="red",
         alpha=0.4,
         marker="x",
     )
 
     # plot funnel
-    se_max = df.ln_rr_se.max()
+    se_max = df[data_settings["obs_se"]].max()
     ax.fill_betweenx(
         [0.0, se_max],
         [beta[0], beta[0] - 1.96 * se_max],
