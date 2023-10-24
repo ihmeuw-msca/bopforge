@@ -465,7 +465,7 @@ def _plot_funnel(all_settings: dict, summary: dict, df: DataFrame, ax: Axes) -> 
     )
 
     # set title and labels
-    ax.set_xlabel("ln_rr")
-    ax.set_ylabel("ln_rr_se")
+    ax.set_xlabel(data_settings["obs"])
+    ax.set_ylabel(data_settings["obs_se"])
 
     return ax
