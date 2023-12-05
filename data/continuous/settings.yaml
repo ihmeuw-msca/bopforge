@@ -12,9 +12,18 @@ diet_veg-cvd_ihd:
 default:
   # random seed
   seed: 0
+  # data description
+  data:
+    obs: "ln_rr"
+    obs_se: "ln_rr_se"
+    study_id: "study_id"
+    data_id: "seq"
   fit_signal_model:
     # signal model covariate model settings, contains configurations of the spline and its priors
     cov_model:
+      # type of the cov model, here we only have two options 'linear' or 'log'
+      # please use 'log' when you are dealing with log relative risk, otherwise you can use 'linear' when see fit
+      type: "log"
       # the value of these knots won't be used in the actual model fitting, but the number of knots will be used
       # the actual values of the knots will be sampled using the settings in "knots_samples"
       spline_knots: [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -37,6 +46,10 @@ default:
     signal_model:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
+    # settings for the optimizer
+    fit_model:
+      outer_step_size: 200
+      outer_max_iter: 100
   select_bias_covs:
     # settings for covariate selection
     cov_finder:
