@@ -26,8 +26,8 @@ def pre_processing(dataif: DataInterface) -> None:
     df.drop(columns=covs_to_remove, inplace=True)
 
     # remove from settings
-    all_covs = set(all_covs)
-    covs_to_remove = set(covs_to_remove)
+    all_covs = set("em" + col[3:] for col in all_covs)
+    covs_to_remove = set("em" + col[3:] for col in covs_to_remove)
     pre_selected_covs = set(settings["pre_selected_covs"])
     pre_selected_covs = pre_selected_covs & all_covs
     pre_selected_covs = pre_selected_covs - covs_to_remove
