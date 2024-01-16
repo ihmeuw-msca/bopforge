@@ -171,10 +171,18 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
         "risk_unit": str(df.risk_unit.values[0]),
     }
     summary["risk_bounds"] = [float(risk_exposures.min()), float(risk_exposures.max())]
-    summary["risk_score_bounds"] = [
-        float(np.quantile(risk_exposures[:, [0, 1]].mean(axis=1), 0.15)),
-        float(np.quantile(risk_exposures[:, [2, 3]].mean(axis=1), 0.85)),
-    ]
+    ref_risk = risk_exposures[:, [0, 1]]
+    alt_risk = risk_exposures[:, [2, 3]]
+    if ref_risk.mean() <= alt_risk.mean():
+        summary["risk_score_bounds"] = [
+            float(np.quantile(ref_risk.mean(axis=1), 0.15)),
+            float(np.quantile(alt_risk.mean(axis=1), 0.85)),
+        ]
+    else:
+        summary["risk_score_bounds"] = [
+            float(np.quantile(alt_risk.mean(axis=1), 0.15)),
+            float(np.quantile(ref_risk.mean(axis=1), 0.85)),
+        ]
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
     ]
@@ -718,6 +726,9 @@ def _plot_data(
     if summary["normalize_to_tmrel"]:
         risk = np.linspace(*summary["risk_bounds"], 100)
         signal = get_signal(signal_model, risk)
+        if linear_model is not None:
+            signal *= linear_model.beta_soln[0]
+        ref_ln_rr -= signal.min()
         alt_ln_rr -= signal.min()
 
     # plot data points
