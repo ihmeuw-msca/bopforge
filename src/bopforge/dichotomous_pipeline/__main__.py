@@ -55,6 +55,7 @@ def fit_signal_model(result_folder: Path) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    pre_processing(result_folder)
     dataif = DataInterface(result=result_folder)
     name = dataif.result.name
 
@@ -204,7 +205,6 @@ def run(
         dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
         np.random.seed(pair_settings["seed"])
-        pre_processing(pair_o_dir)
         for action in actions:
             globals()[action](pair_o_dir)
 
