@@ -646,11 +646,11 @@ def plot_linear_model(
     pred = np.outer(
         np.array(
             [
-                beta[0] - 1.645 * outer_beta_sd,
-                beta[0] - 1.645 * inner_beta_sd,
+                beta[0] - 1.96 * outer_beta_sd,
+                beta[0] - 1.96 * inner_beta_sd,
                 beta[0],
-                beta[0] + 1.645 * inner_beta_sd,
-                beta[0] + 1.645 * outer_beta_sd,
+                beta[0] + 1.96 * inner_beta_sd,
+                beta[0] + 1.96 * outer_beta_sd,
             ]
         ),
         signal,
@@ -659,9 +659,12 @@ def plot_linear_model(
     if summary["normalize_to_tmrel"]:
         pred -= pred[:, [np.argmin(pred[2])]]
 
+    log_bprf = pred[2] * (1.0 - 1.645 * outer_beta_sd / beta[0])
+
     ax[0].plot(risk, pred[2], color="#008080")
     ax[0].fill_between(risk, pred[0], pred[4], color="gray", alpha=0.2)
     ax[0].fill_between(risk, pred[1], pred[3], color="gray", alpha=0.2)
+    ax[0].plot(risk, log_bprf, color="red")
 
     # plot funnel
     _plot_funnel(summary, df, ax[1])
