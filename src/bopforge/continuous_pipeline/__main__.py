@@ -52,6 +52,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    pre_processing(dataif)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -214,7 +215,6 @@ def run(
 
         np.random.seed(pair_settings["seed"])
         pair_dataif = DataInterface(result=pair_o_dir)
-        pre_processing(pair_dataif)
         for action in actions:
             globals()[action](pair_dataif)
 
