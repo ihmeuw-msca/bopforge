@@ -171,18 +171,14 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
         "risk_unit": str(df.risk_unit.values[0]),
     }
     summary["risk_bounds"] = [float(risk_exposures.min()), float(risk_exposures.max())]
-    ref_risk = risk_exposures[:, [0, 1]]
-    alt_risk = risk_exposures[:, [2, 3]]
-    if ref_risk.mean() <= alt_risk.mean():
-        summary["risk_score_bounds"] = [
-            float(np.quantile(ref_risk.mean(axis=1), 0.15)),
-            float(np.quantile(alt_risk.mean(axis=1), 0.85)),
-        ]
-    else:
-        summary["risk_score_bounds"] = [
-            float(np.quantile(alt_risk.mean(axis=1), 0.15)),
-            float(np.quantile(ref_risk.mean(axis=1), 0.85)),
-        ]
+    risk_mean = np.vstack(
+        [risk_exposures[:, [0, 1]].mean(axis=1), risk_exposures[:, [2, 3]].mean(axis=1)]
+    )
+    risk_mean.sort(axis=0)
+    summary["risk_score_bounds"] = [
+        float(np.quantile(risk_mean[0], 0.15)),
+        float(np.quantile(risk_mean[1], 0.85)),
+    ]
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
     ]
