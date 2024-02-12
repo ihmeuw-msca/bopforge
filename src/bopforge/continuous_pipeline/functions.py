@@ -414,11 +414,9 @@ def get_linear_model_summary(
         summary["score"] = float("nan")
         summary["star_rating"] = 0
     else:
-        score = float(
-            ((sign * burden_of_proof)[:, index].mean(axis=1)).min()
-        )
+        score = float(((sign * burden_of_proof)[:, index].mean(axis=1)).min())
         summary["score"] = score
-        #Assign star rating based on ROS
+        # Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
         elif score > np.log(1 + 0.85):
