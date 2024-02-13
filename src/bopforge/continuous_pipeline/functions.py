@@ -563,7 +563,11 @@ def get_quantiles(
 
 
 def plot_signal_model(
-    name: str, summary: dict, df: DataFrame, signal_model: MRBeRT
+    name: str,
+    summary: dict,
+    df: DataFrame,
+    signal_model: MRBeRT,
+    show_ref: bool = True,
 ) -> Figure:
     """Plot the signal model
 
@@ -577,6 +581,8 @@ def plot_signal_model(
         Data frame contains training data.
     signal_model
         Fitted signal model for risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -588,7 +594,7 @@ def plot_signal_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax, signal_model=signal_model)
+    _plot_data(name, summary, df, ax, signal_model=signal_model, show_ref=show_ref)
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
@@ -606,6 +612,7 @@ def plot_linear_model(
     df: DataFrame,
     signal_model: MRBeRT,
     linear_model: MRBRT,
+    show_ref: bool = True,
 ) -> Figure:
     """Plot the linear model
 
@@ -621,6 +628,8 @@ def plot_linear_model(
         Fitted signal model for risk curve.
     linear_model
         Fitted linear model for risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -632,7 +641,7 @@ def plot_linear_model(
     fig, ax = plt.subplots(1, 2, figsize=(16, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax[0], signal_model, linear_model)
+    _plot_data(name, summary, df, ax[0], signal_model, linear_model, show_ref=show_ref)
 
     # plot curve and uncertainty
     beta = summary["beta"]
@@ -679,6 +688,7 @@ def _plot_data(
     ax: Axes,
     signal_model: MRBeRT = None,
     linear_model: Optional[MRBRT] = None,
+    show_ref: bool = True,
 ) -> Axes:
     """Plot data points
 
@@ -697,6 +707,8 @@ def _plot_data(
         the points are plotted reference to original signal model. When linear
         model is provided, the points are plotted reference to the linear model
         risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -748,8 +760,9 @@ def _plot_data(
         alpha=0.5,
         marker="x",
     )
-    for x_0, y_0, x_1, y_1 in zip(alt_risk, alt_ln_rr, ref_risk, ref_ln_rr):
-        ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
+    if show_ref:
+        for x_0, y_0, x_1, y_1 in zip(alt_risk, alt_ln_rr, ref_risk, ref_ln_rr):
+            ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
 
     # plot support lines
     ax.axhline(0.0, linewidth=1, linestyle="-", color="gray")

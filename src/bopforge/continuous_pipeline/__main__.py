@@ -67,7 +67,13 @@ def fit_signal_model(dataif: DataInterface) -> None:
 
     summary = functions.get_signal_model_summary(name, all_settings, df)
 
-    fig = functions.plot_signal_model(name, summary, df, signal_model)
+    fig = functions.plot_signal_model(
+        name,
+        summary,
+        df,
+        signal_model,
+        show_ref=all_settings["figure"]["show_ref"],
+    )
 
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(signal_model, "signal_model.pkl")
@@ -154,7 +160,14 @@ def fit_linear_model(dataif: DataInterface) -> None:
         settings, summary, signal_model
     )
 
-    fig = functions.plot_linear_model(name, summary, df, signal_model, linear_model)
+    fig = functions.plot_linear_model(
+        name,
+        summary,
+        df,
+        signal_model,
+        linear_model,
+        show_ref=all_settings["figure"]["show_ref"],
+    )
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")

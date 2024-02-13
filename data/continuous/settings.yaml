@@ -60,4 +60,7 @@ default:
       # for monotonic curve this is usually false
       # only for j-shaped this can be true
       normalize_to_tmrel: false
+  figure:
+    # if we want to show the connection between the reference and alternative exposure
+    show_ref: false
 
