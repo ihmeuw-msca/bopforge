@@ -62,5 +62,5 @@ default:
       normalize_to_tmrel: false
   figure:
     # if we want to show the connection between the reference and alternative exposure
-    show_ref: false
+    show_ref: true
 
