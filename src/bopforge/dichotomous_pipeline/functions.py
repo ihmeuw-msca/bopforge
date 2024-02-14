@@ -250,11 +250,11 @@ def get_linear_model_summary(
         #Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
-        elif score > 0.6152:
+        elif score > np.log(1 + 0.85):
             summary["star_rating"] = 5
-        elif score > 0.4055:
+        elif score > np.log(1 + 0.50):
             summary["star_rating"] = 4
-        elif score > 0.1398:
+        elif score > np.log(1 + 0.15):
             summary["star_rating"] = 3
         elif score > 0:
             summary["star_rating"] = 2
