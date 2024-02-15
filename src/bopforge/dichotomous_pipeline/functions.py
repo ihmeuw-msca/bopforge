@@ -235,7 +235,7 @@ def get_linear_model_summary(
     summary["beta"] = [float(beta_info[0]), float(beta_info[1])]
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
-    # compute the score
+    # compute the score and add star rating
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     sign = np.sign(beta_info[0])
     inner_ui = beta_info[0] - sign * 1.96 * beta_info[1]
@@ -243,8 +243,23 @@ def get_linear_model_summary(
 
     if inner_ui * beta_info[0] < 0:
         summary["score"] = float("nan")
+        summary["star_rating"] = 0
     else:
-        summary["score"] = float(0.5 * sign * burden_of_proof)
+        score = float(0.5 * sign * burden_of_proof)
+        summary["score"] = score
+        #Assign star rating based on ROS
+        if np.isnan(score):
+            summary["star_rating"] = 0
+        elif score > np.log(1 + 0.85):
+            summary["star_rating"] = 5
+        elif score > np.log(1 + 0.50):
+            summary["star_rating"] = 4
+        elif score > np.log(1 + 0.15):
+            summary["star_rating"] = 3
+        elif score > 0:
+            summary["star_rating"] = 2
+        else:
+            summary["star_rating"] = 1
 
     # compute the publication bias
     index = df.is_outlier == 0

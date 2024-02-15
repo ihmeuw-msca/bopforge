@@ -52,6 +52,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
         Data interface in charge of file reading and writing.
 
     """
+    pre_processing(dataif)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -66,7 +67,13 @@ def fit_signal_model(dataif: DataInterface) -> None:
 
     summary = functions.get_signal_model_summary(name, all_settings, df)
 
-    fig = functions.plot_signal_model(name, summary, df, signal_model)
+    fig = functions.plot_signal_model(
+        name,
+        summary,
+        df,
+        signal_model,
+        show_ref=all_settings["figure"]["show_ref"],
+    )
 
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(signal_model, "signal_model.pkl")
@@ -153,7 +160,14 @@ def fit_linear_model(dataif: DataInterface) -> None:
         settings, summary, signal_model
     )
 
-    fig = functions.plot_linear_model(name, summary, df, signal_model, linear_model)
+    fig = functions.plot_linear_model(
+        name,
+        summary,
+        df,
+        signal_model,
+        linear_model,
+        show_ref=all_settings["figure"]["show_ref"],
+    )
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")
@@ -214,7 +228,6 @@ def run(
 
         np.random.seed(pair_settings["seed"])
         pair_dataif = DataInterface(result=pair_o_dir)
-        pre_processing(pair_dataif)
         for action in actions:
             globals()[action](pair_dataif)
 

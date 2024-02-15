@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bopforge"
-version = "0.0.5"
+version = "0.0.6"
 description = "Pipelines for Burden of Proof (BoP) analyses"
 readme = "REDME.md"
 requires-python = ">=3.10"
@@ -28,5 +28,5 @@ dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
 [tool.sphinx]
 project = "modrover"
 author = "IHME Math Sciences"
-copyright = "2023, IHME Math Sciences"
-version = "0.0.4"
+copyright = "2024, IHME Math Sciences"
+version = "0.0.6"

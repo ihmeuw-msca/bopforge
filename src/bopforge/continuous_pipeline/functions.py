@@ -171,9 +171,13 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
         "risk_unit": str(df.risk_unit.values[0]),
     }
     summary["risk_bounds"] = [float(risk_exposures.min()), float(risk_exposures.max())]
+    risk_mean = np.vstack(
+        [risk_exposures[:, [0, 1]].mean(axis=1), risk_exposures[:, [2, 3]].mean(axis=1)]
+    )
+    risk_mean.sort(axis=0)
     summary["risk_score_bounds"] = [
-        float(np.quantile(risk_exposures[:, [0, 1]].mean(axis=1), 0.15)),
-        float(np.quantile(risk_exposures[:, [2, 3]].mean(axis=1), 0.85)),
+        float(np.quantile(risk_mean[0], 0.15)),
+        float(np.quantile(risk_mean[1], 0.85)),
     ]
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
@@ -379,7 +383,7 @@ def get_linear_model_summary(
     summary["beta"] = [float(beta_info[0]), float(beta_info[1])]
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
-    # compute the score
+    # compute the score and add star rating
     risk = np.linspace(*summary["risk_bounds"], 100)
     signal = get_signal(signal_model, risk)
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
@@ -408,10 +412,25 @@ def get_linear_model_summary(
     sign = np.sign(pred)
     if np.any(np.prod(inner_ui[:, index], axis=0) < 0):
         summary["score"] = float("nan")
+        summary["star_rating"] = 0
     else:
-        summary["score"] = float(
+        score = float(
             ((sign * burden_of_proof)[:, index].mean(axis=1)).min()
         )
+        summary["score"] = score
+        #Assign star rating based on ROS
+        if np.isnan(score):
+            summary["star_rating"] = 0
+        elif score > np.log(1 + 0.85):
+            summary["star_rating"] = 5
+        elif score > np.log(1 + 0.50):
+            summary["star_rating"] = 4
+        elif score > np.log(1 + 0.15):
+            summary["star_rating"] = 3
+        elif score > 0:
+            summary["star_rating"] = 2
+        else:
+            summary["star_rating"] = 1
 
     # compute the publication bias
     index = df.is_outlier == 0
@@ -559,7 +578,11 @@ def get_quantiles(
 
 
 def plot_signal_model(
-    name: str, summary: dict, df: DataFrame, signal_model: MRBeRT
+    name: str,
+    summary: dict,
+    df: DataFrame,
+    signal_model: MRBeRT,
+    show_ref: bool = True,
 ) -> Figure:
     """Plot the signal model
 
@@ -573,6 +596,8 @@ def plot_signal_model(
         Data frame contains training data.
     signal_model
         Fitted signal model for risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -584,7 +609,7 @@ def plot_signal_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax, signal_model=signal_model)
+    _plot_data(name, summary, df, ax, signal_model=signal_model, show_ref=show_ref)
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
@@ -602,6 +627,7 @@ def plot_linear_model(
     df: DataFrame,
     signal_model: MRBeRT,
     linear_model: MRBRT,
+    show_ref: bool = True,
 ) -> Figure:
     """Plot the linear model
 
@@ -617,6 +643,8 @@ def plot_linear_model(
         Fitted signal model for risk curve.
     linear_model
         Fitted linear model for risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -628,7 +656,7 @@ def plot_linear_model(
     fig, ax = plt.subplots(1, 2, figsize=(16, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax[0], signal_model, linear_model)
+    _plot_data(name, summary, df, ax[0], signal_model, linear_model, show_ref=show_ref)
 
     # plot curve and uncertainty
     beta = summary["beta"]
@@ -642,11 +670,11 @@ def plot_linear_model(
     pred = np.outer(
         np.array(
             [
-                beta[0] - 1.645 * outer_beta_sd,
-                beta[0] - 1.645 * inner_beta_sd,
+                beta[0] - 1.96 * outer_beta_sd,
+                beta[0] - 1.96 * inner_beta_sd,
                 beta[0],
-                beta[0] + 1.645 * inner_beta_sd,
-                beta[0] + 1.645 * outer_beta_sd,
+                beta[0] + 1.96 * inner_beta_sd,
+                beta[0] + 1.96 * outer_beta_sd,
             ]
         ),
         signal,
@@ -655,9 +683,12 @@ def plot_linear_model(
     if summary["normalize_to_tmrel"]:
         pred -= pred[:, [np.argmin(pred[2])]]
 
+    log_bprf = pred[2] * (1.0 - 1.645 * outer_beta_sd / beta[0])
+
     ax[0].plot(risk, pred[2], color="#008080")
     ax[0].fill_between(risk, pred[0], pred[4], color="gray", alpha=0.2)
     ax[0].fill_between(risk, pred[1], pred[3], color="gray", alpha=0.2)
+    ax[0].plot(risk, log_bprf, color="red")
 
     # plot funnel
     _plot_funnel(summary, df, ax[1])
@@ -672,6 +703,7 @@ def _plot_data(
     ax: Axes,
     signal_model: MRBeRT = None,
     linear_model: Optional[MRBRT] = None,
+    show_ref: bool = True,
 ) -> Axes:
     """Plot data points
 
@@ -690,6 +722,8 @@ def _plot_data(
         the points are plotted reference to original signal model. When linear
         model is provided, the points are plotted reference to the linear model
         risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
 
     Returns
     -------
@@ -718,6 +752,9 @@ def _plot_data(
     if summary["normalize_to_tmrel"]:
         risk = np.linspace(*summary["risk_bounds"], 100)
         signal = get_signal(signal_model, risk)
+        if linear_model is not None:
+            signal *= linear_model.beta_soln[0]
+        ref_ln_rr -= signal.min()
         alt_ln_rr -= signal.min()
 
     # plot data points
@@ -738,8 +775,9 @@ def _plot_data(
         alpha=0.5,
         marker="x",
     )
-    for x_0, y_0, x_1, y_1 in zip(alt_risk, alt_ln_rr, ref_risk, ref_ln_rr):
-        ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
+    if show_ref:
+        for x_0, y_0, x_1, y_1 in zip(alt_risk, alt_ln_rr, ref_risk, ref_ln_rr):
+            ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
 
     # plot support lines
     ax.axhline(0.0, linewidth=1, linestyle="-", color="gray")
