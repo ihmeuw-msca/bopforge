@@ -65,7 +65,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
 
     df = functions.convert_bc_to_em(df, signal_model)
 
-    summary = functions.get_signal_model_summary(name, all_settings, df)
+    summary = functions.get_signal_model_summary(name, all_settings, df, signal_model)
 
     fig = functions.plot_signal_model(
         name,

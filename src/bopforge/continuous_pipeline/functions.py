@@ -9,6 +9,7 @@ from mrtool import MRBRT, CovFinder, LinearCovModel, LogCovModel, MRBeRT, MRData
 from mrtool.core.utils import sample_knots
 from pandas import DataFrame
 from scipy.stats import norm
+from limetr import get_aic, get_bic, get_rmse
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
@@ -138,7 +139,12 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBeRT) -> DataFrame:
     return df
 
 
-def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> dict:
+def get_signal_model_summary(
+    name: str,
+    all_settings: dict,
+    df: DataFrame,
+    signal_model: MRBeRT,
+) -> dict:
     """Create signal model summary.
 
     Parameters
@@ -149,6 +155,8 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
         All the settings for the pipeline.
     df
         Data frame that contains the training dataset.
+    signal_model
+        Fitted signal model for risk curve.
 
     Returns
     -------
@@ -182,6 +190,26 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
     ]
+
+    summary["model_performance"] = {
+        "signal_model": {
+            "aic": float(
+                np.array(
+                    [get_aic(sub_model.lt) for sub_model in signal_model.sub_models]
+                ).dot(signal_model.weights)
+            ),
+            "bic": float(
+                np.array(
+                    [get_bic(sub_model.lt) for sub_model in signal_model.sub_models]
+                ).dot(signal_model.weights)
+            ),
+            "rmse": float(
+                np.array(
+                    [get_rmse(sub_model.lt) for sub_model in signal_model.sub_models]
+                ).dot(signal_model.weights)
+            ),
+        },
+    }
 
     return summary
 
@@ -442,6 +470,12 @@ def get_linear_model_summary(
     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
     summary["pub_bias"] = int(pval < 0.05)
     summary["pub_bias_pval"] = float(pval)
+
+    summary["model_performance"]["linear_model"] = {
+        "aic": float(get_aic(linear_model.lt)),
+        "bic": float(get_bic(linear_model.lt)),
+        "rmse": float(get_rmse(linear_model.lt)),
+    }
 
     return summary
 
