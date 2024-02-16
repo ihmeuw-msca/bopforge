@@ -6,6 +6,7 @@ from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
+from limetr import get_aic, get_bic, get_rmse
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
@@ -271,6 +272,14 @@ def get_linear_model_summary(
     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
     summary["pub_bias"] = int(pval < 0.05)
     summary["pub_bias_pval"] = float(pval)
+
+    summary["model_performance"] = {
+        "linear_model": {
+            "aic": float(get_aic(linear_model.lt)),
+            "bic": float(get_bic(linear_model.lt)),
+            "rmse": float(get_rmse(linear_model.lt)),
+        }
+    }
 
     return summary
 
