@@ -2,8 +2,8 @@ default:
   seed: 0
   fit_signal_model:
     cat_cov_model:
-      ref_cat: "unimproved"
-      prior_order: [[]]
+      ref_cat: 
+      prior_order: []
     signal_model:
       inlier_pct: 0.9
   select_bias_covs:
