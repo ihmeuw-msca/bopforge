@@ -3,7 +3,7 @@ default:
   fit_signal_model:
     cat_cov_model:
       ref_cat: "unimproved"
-      prior_order: [["hq_piped", "piped", "filter", "solar", "improved", "unimproved"]]
+      prior_order: [[]]
     signal_model:
       inlier_pct: 0.9
   select_bias_covs:
@@ -17,4 +17,4 @@ default:
       normalize_to_tmrel: false
   figure:
     show_ref: true
-    cat_order: ["unimproved", "improved", "solar", "filter", "piped", "hq_piped"]
+    cat_order: []

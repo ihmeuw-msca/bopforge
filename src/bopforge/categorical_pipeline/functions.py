@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
 # from bopforge.utils import get_beta_info, get_gamma_info
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCatCovModel, MRData
@@ -31,19 +32,19 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=[
-            "ref_risk_cat",
-            "alt_risk_cat"
-            ],
+        col_covs=["ref_risk_cat", "alt_risk_cat"],
         col_study_id="study_id",
         col_data_id="seq",
     )
     cov_models = [
         LinearCatCovModel(
-            alt_cov = "alt_risk_cat", ref_cov = "ref_risk_cat", 
-            **settings["cat_cov_model"],
+            alt_cov="alt_risk_cat",
+            ref_cov="ref_risk_cat",
+            ref_cat=settings["cat_cov_model"]["ref_cat"],
+            prior_order=settings["cat_cov_model"]["prior_order"],
             use_re=True,
-            )]
+        )
+    ]
 
     signal_model = MRBRT(data, cov_models, **settings["signal_model"])
 
@@ -77,11 +78,7 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
     return df
 
 
-def get_signal_model_summary(
-        name: str, 
-        df: DataFrame,
-        df_coef: DataFrame
-        ) -> dict:
+def get_signal_model_summary(name: str, df: DataFrame, df_coef: DataFrame) -> dict:
     """Create signal model summary.
 
     Parameters
@@ -103,9 +100,10 @@ def get_signal_model_summary(
     summary = {
         "name": name,
         "risk_type": str(df.risk_type.values[0]),
-        "beta": df_coef.coef.tolist()
+        "beta": df_coef.coef.tolist(),
     }
     return summary
+
 
 def get_coefs(
     settings: dict,
@@ -118,7 +116,7 @@ def get_coefs(
     settings
         The settings for category order
     signal_model
-        Fitted signal model for risk curve. 
+        Fitted signal model for risk curve.
 
     Returns
     -------
@@ -127,11 +125,15 @@ def get_coefs(
 
     """
     # extract categories, betas
-    df_coef = pd.DataFrame(dict(cat=signal_model.cov_models[0].cats, coef=signal_model.beta_soln))
+    df_coef = pd.DataFrame(
+        dict(cat=signal_model.cov_models[0].cats, coef=signal_model.beta_soln)
+    )
     cat_order = settings["figure"]["cat_order"]
     # Order the categories
     if cat_order:
-        df_coef["cat"] = pd.Categorical(df_coef["cat"], categories = cat_order, ordered = True)
+        df_coef["cat"] = pd.Categorical(
+            df_coef["cat"], categories=cat_order, ordered=True
+        )
         df_coef = df_coef.sort_values("cat").reset_index(drop=True)
     # Add x ranges
     num_cats = df_coef["cat"].nunique()
@@ -140,6 +142,7 @@ def get_coefs(
     df_coef["x_mid"] = df_coef.eval("0.5 * (x_start + x_end)")
 
     return df_coef
+
 
 def plot_signal_model(
     name: str,
@@ -177,26 +180,29 @@ def plot_signal_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot data
-    _plot_data(name, summary, df, df_coef, ax, signal_model=signal_model, show_ref=show_ref)
+    _plot_data(
+        name, summary, df, df_coef, ax, signal_model=signal_model, show_ref=show_ref
+    )
 
     # plot beta coefficients
     # if summary["normalize_to_tmrel"]:
     #     coef_min = df_coef.coef.min()
     #     for i, row in df_coef.iterrows():
     #         ax.plot(
-    #             [row["x_start"] + offset, row["x_end"] - offset], 
-    #             [row["coef"] - coef_min]*2, 
+    #             [row["x_start"] + offset, row["x_end"] - offset],
+    #             [row["coef"] - coef_min]*2,
     #             color = 'black'
     #             )
     # else:
     for i, row in df_coef.iterrows():
         ax.plot(
-            [row["x_start"] + offset, row["x_end"] - offset], 
-            [row["coef"]]*2, 
-            color = 'black'
-            )
+            [row["x_start"] + offset, row["x_end"] - offset],
+            [row["coef"]] * 2,
+            color="black",
+        )
 
     return fig
+
 
 def _plot_data(
     name: str,
@@ -241,18 +247,26 @@ def _plot_data(
 
     # Merge coefficient for each category into dataframe: beta coefficient for reference category
     # Then add x midpoint corresponding to reference and alternative categories
-    df = df.merge(
-        df_coef[["cat", "coef"]].rename(columns={"cat": "ref_risk_cat"}),
-        on="ref_risk_cat",
-        how="left",
-    ).merge(
-        df_coef[["cat", "x_mid"]].rename(columns={"cat": "alt_risk_cat", "x_mid": "alt_cat_mid"}),
-        on="alt_risk_cat",
-        how="left",
-    ).merge(
-        df_coef[["cat", "x_mid"]].rename(columns={"cat": "ref_risk_cat", "x_mid": "ref_cat_mid"}),
-        on="ref_risk_cat",
-        how="left",
+    df = (
+        df.merge(
+            df_coef[["cat", "coef"]].rename(columns={"cat": "ref_risk_cat"}),
+            on="ref_risk_cat",
+            how="left",
+        )
+        .merge(
+            df_coef[["cat", "x_mid"]].rename(
+                columns={"cat": "alt_risk_cat", "x_mid": "alt_cat_mid"}
+            ),
+            on="alt_risk_cat",
+            how="left",
+        )
+        .merge(
+            df_coef[["cat", "x_mid"]].rename(
+                columns={"cat": "ref_risk_cat", "x_mid": "ref_cat_mid"}
+            ),
+            on="ref_risk_cat",
+            how="left",
+        )
     )
 
     alt_obs = df.ln_rr + df.coef
@@ -266,26 +280,28 @@ def _plot_data(
     alt_cat_mid_jitter = df.alt_cat_mid + np.random.uniform(-0.2, 0.2, df.shape[0])
 
     # plot data points
-    # index = df.is_outlier_y == 1
+    index = df.is_outlier == 1
     ax.scatter(
-        alt_cat_mid_jitter, 
-        alt_obs, 
-        s=5/df["ln_rr_se"].values,
-        color = "#008080", 
-        alpha = 0.5,
-        edgecolor = "none",
-        )
-    # ax.scatter(
-    #     alt_cat_mid_jitter, 
-    #     alt_obs,
-    #     s=5/df.ln_rr_se.values[index],
-    #     color="red",
-    #     alpha=0.5,
-    #     marker="x",
-    # )
+        alt_cat_mid_jitter,
+        alt_obs,
+        s=5 / df["ln_rr_se"].values,
+        color="#008080",
+        alpha=0.5,
+        edgecolor="none",
+    )
+    ax.scatter(
+        alt_cat_mid_jitter[index],
+        alt_obs[index],
+        s=5 / df.ln_rr_se.values[index],
+        color="red",
+        alpha=0.5,
+        marker="x",
+    )
     if show_ref:
-        for x_0, y_0, x_1, y_1 in zip(alt_cat_mid_jitter, alt_obs, df["ref_cat_mid"], df["coef"]):
-            ax.plot([x_0, x_1], [y_0, y_1], color = "#008080", linewidth = 0.5, alpha = 0.5)
+        for x_0, y_0, x_1, y_1 in zip(
+            alt_cat_mid_jitter, alt_obs, df["ref_cat_mid"], df["coef"]
+        ):
+            ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
 
     # plot support lines
     ax.axhline(0.0, linewidth=1, linestyle="-", color="gray")
