@@ -4,9 +4,8 @@ import pandas as pd
 
 # from bopforge.utils import get_beta_info, get_gamma_info
 from matplotlib.pyplot import Axes, Figure
-from mrtool import MRBRT, CovFinder, LinearCatCovModel, MRData
+from mrtool import MRBRT, LinearCatCovModel, MRData
 from pandas import DataFrame
-from scipy.stats import norm
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
@@ -78,7 +77,9 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
     return df
 
 
-def get_signal_model_summary(name: str, df: DataFrame, df_coef: DataFrame) -> dict:
+def get_signal_model_summary(
+    name: str, df: DataFrame, df_coef: DataFrame
+) -> dict:
     """Create signal model summary.
 
     Parameters
@@ -181,7 +182,13 @@ def plot_signal_model(
 
     # plot data
     _plot_data(
-        name, summary, df, df_coef, ax, signal_model=signal_model, show_ref=show_ref
+        name,
+        summary,
+        df,
+        df_coef,
+        ax,
+        signal_model=signal_model,
+        show_ref=show_ref,
     )
 
     # plot beta coefficients
@@ -277,7 +284,9 @@ def _plot_data(
     #     alt_obs -= beta_min
 
     # Add a little jitter
-    alt_cat_mid_jitter = df.alt_cat_mid + np.random.uniform(-0.2, 0.2, df.shape[0])
+    alt_cat_mid_jitter = df.alt_cat_mid + np.random.uniform(
+        -0.2, 0.2, df.shape[0]
+    )
 
     # plot data points
     index = df.is_outlier == 1
@@ -301,7 +310,13 @@ def _plot_data(
         for x_0, y_0, x_1, y_1 in zip(
             alt_cat_mid_jitter, alt_obs, df["ref_cat_mid"], df["coef"]
         ):
-            ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
+            ax.plot(
+                [x_0, x_1],
+                [y_0, y_1],
+                color="#008080",
+                linewidth=0.5,
+                alpha=0.5,
+            )
 
     # plot support lines
     ax.axhline(0.0, linewidth=1, linestyle="-", color="gray")
