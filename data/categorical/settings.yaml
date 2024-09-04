@@ -1,0 +1,20 @@
+default:
+  seed: 0
+  fit_signal_model:
+    cat_cov_model:
+      ref_cat: 
+      prior_order: []
+    signal_model:
+      inlier_pct: 0.9
+  select_bias_covs:
+    cov_finder:
+      pre_selected_covs: []
+  complete_summary:
+    draws:
+      num_draws: 1000
+      quantiles: [0.025, 0.05, 0.5, 0.95, 0.975]
+    score:
+      normalize_to_tmrel: false
+  figure:
+    show_ref: true
+    cat_order: []

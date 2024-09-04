@@ -1,8 +1,9 @@
 """
 Ultility functions
 """
+
 import argparse
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from mrtool import MRBRT, MRBeRT, MRData

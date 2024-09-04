@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "IHME Math Sciences", email = "ihme.math.sciences@gmail.com" },
 ]
-dependencies = ["numpy", "scipy", "pandas", "matplotlib", "mrtool==0.1.4", "pplkit"]
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "pplkit"]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -24,6 +24,7 @@ github = "https://github.com/ihmeuw-msca/bopforge"
 [project.scripts]
 continuous_pipeline = "bopforge.continuous_pipeline.__main__:main"
 dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
+categorical_pipeline = "bopforge.categorical_pipeline.__main__:main"
 
 [tool.sphinx]
 project = "modrover"
