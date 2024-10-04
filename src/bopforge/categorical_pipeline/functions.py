@@ -1,9 +1,12 @@
+from typing import Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCatCovModel, LinearCovModel, MRData
 from pandas import DataFrame
+from scipy.stats import norm
 
 from bopforge.utils import get_beta_info, get_gamma_info
 
@@ -90,7 +93,7 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBRT) -> DataFrame:
 
 
 def get_signal_model_summary(
-    name: str, df: DataFrame, df_coef: DataFrame
+    name: str, all_settings: dict, df: DataFrame, df_coef: DataFrame
 ) -> dict:
     """Create signal model summary.
 
@@ -98,6 +101,8 @@ def get_signal_model_summary(
     ----------
     name
         Name of the pair.
+    all_settings
+        All the settings for the pipeline.
     df
         Data frame that contains the training dataset.
     df_coef
@@ -113,8 +118,11 @@ def get_signal_model_summary(
     summary = {
         "name": name,
         "risk_type": str(df.risk_type.values[0]),
-        "beta": df_coef.coef.tolist(),
+        "beta_coef_signal": df_coef.coef.tolist(),
     }
+    summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
+        "normalize_to_tmrel"
+    ]
     return summary
 
 
@@ -255,6 +263,10 @@ def get_coefs(
         The settings for category order
     signal_model
         Fitted signal model for risk curve.
+    linear_model
+        Fitted linear model for risk curve. Default is `None`. When it is `None`
+        the coefficients are extracted from the signal model. When a linear
+        model is provided, the coefficients are extracted from the linear model.
 
     Returns
     -------
@@ -349,21 +361,387 @@ def plot_signal_model(
     )
 
     # plot beta coefficients
-    # if summary["normalize_to_tmrel"]:
-    #     coef_min = df_coef.coef.min()
-    #     for i, row in df_coef.iterrows():
-    #         ax.plot(
-    #             [row["x_start"] + offset, row["x_end"] - offset],
-    #             [row["coef"] - coef_min]*2,
-    #             color = 'black'
-    #             )
-    # else:
-    for i, row in df_coef.iterrows():
-        ax.plot(
-            [row["x_start"] + offset, row["x_end"] - offset],
-            [row["coef"]] * 2,
-            color="black",
+    if summary["normalize_to_tmrel"]:
+        coef_min = df_coef.coef.min()
+        for i, row in df_coef.iterrows():
+            ax.plot(
+                [row["x_start"] + offset, row["x_end"] - offset],
+                [row["coef"] - coef_min] * 2,
+                color="black",
+            )
+    else:
+        for i, row in df_coef.iterrows():
+            ax.plot(
+                [row["x_start"] + offset, row["x_end"] - offset],
+                [row["coef"]] * 2,
+                color="black",
+            )
+
+    return fig
+
+
+def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
+    """Create linear model for effect.
+
+    Parameters
+    ----------
+    df
+        Data frame contains training data without outliers.
+    cov_finder_result
+        Summary result for bias covariate selection.
+
+    Returns
+    -------
+    MRBRT
+        The linear model for effect.
+
+    """
+    data = MRData()
+    data.load_df(
+        df,
+        col_obs="ln_rr",
+        col_obs_se="ln_rr_se",
+        col_covs=["signal"] + cov_finder_result["selected_covs"],
+        col_study_id="study_id",
+        col_data_id="seq",
+    )
+    cov_models = [
+        LinearCovModel("signal", use_re=True),
+        LinearCovModel("intercept", use_re=True, prior_beta_uniform=[0.0, 0.0]),
+    ]
+    for cov_name in cov_finder_result["selected_covs"]:
+        cov_models.append(
+            LinearCovModel(
+                cov_name,
+                prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
+            )
         )
+    model = MRBRT(data, cov_models)
+    return model
+
+
+def get_linear_model_summary(
+    settings: dict,
+    summary: dict,
+    df: DataFrame,
+    df_coef: DataFrame,
+    linear_model: MRBRT,
+) -> dict:
+    """Complete the summary from the signal model.
+
+    Parameters
+    ----------
+     settings
+        Settings for the complete summary section.
+    summary
+        Summary from the signal model.
+    df
+        Data frame contains the all dataset.
+    df_coef
+        Data frame containing beta coefficients
+    signal_model
+        Fitted signal model for risk curve.
+    linear_model
+        Fitted linear model for risk curve.
+
+    Returns
+    -------
+    dict
+        Summary file contains all necessary information.
+
+    """
+    # load summary
+    summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
+
+    # solution of the final model
+    beta_info = get_beta_info(linear_model)
+    gamma_info = get_gamma_info(linear_model)
+    summary["beta"] = [float(beta_info[0]), float(beta_info[1])]
+    summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
+
+    # compute the score and add star rating
+    beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
+    pred = df_coef.coef * beta_info[0]
+    inner_ui = np.vstack(
+        [
+            df_coef.coef * (beta_info[0] - 1.96 * beta_info[1]),
+            df_coef.coef * (beta_info[0] + 1.96 * beta_info[1]),
+        ]
+    )
+    burden_of_proof = df_coef.coef * (beta_info[0] - 1.645 * beta_sd)
+
+    if settings["score"]["normalize_to_tmrel"]:
+        index = np.argmin(pred)
+        pred -= pred[index]
+        burden_of_proof -= burden_of_proof[None, index]
+        inner_ui -= inner_ui[:, None, index]
+
+    sign = np.sign(pred)
+    signed_bprf = sign * burden_of_proof
+    # Number of alternative categories
+    n = pred.size - 1
+    # Index with largest signed coefficient
+    max_idx = np.argmax(sign * pred)
+    if np.any(np.prod(inner_ui[:,], axis=0) < 0):
+        summary["score"] = float("nan")
+        summary["star_rating"] = 0
+    else:
+        score = float(
+            (1 / n) * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
+        )
+        summary["score"] = score
+        # Assign star rating based on ROS
+        if np.isnan(score):
+            summary["star_rating"] = 0
+        elif score > np.log(1 + 0.85):
+            summary["star_rating"] = 5
+        elif score > np.log(1 + 0.50):
+            summary["star_rating"] = 4
+        elif score > np.log(1 + 0.15):
+            summary["star_rating"] = 3
+        elif score > 0:
+            summary["star_rating"] = 2
+        else:
+            summary["star_rating"] = 1
+
+    # compute the publication bias
+    index = df.is_outlier == 0
+    residual = df.ln_rr.values[index] - df.signal.values[index] * beta_info[0]
+    residual_sd = np.sqrt(
+        df.ln_rr_se.values[index] ** 2
+        + df.signal.values[index] ** 2 * gamma_info[0]
+    )
+    weighted_residual = residual / residual_sd
+    r_mean = weighted_residual.mean()
+    r_sd = 1 / np.sqrt(weighted_residual.size)
+    pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
+    summary["pub_bias"] = int(pval < 0.05)
+    summary["pub_bias_pval"] = float(pval)
+
+    return summary
+
+
+def get_draws(
+    settings: dict,
+    summary: dict,
+    df_coef: DataFrame,
+) -> tuple[DataFrame, DataFrame]:
+    """Create effect draws for the pipeline.
+
+    Parameters
+    ----------
+    settings
+        Settings for complete the summary.
+    summary
+        Summary of the models.
+    df_coef
+        Data frame containing fitted beta coefficients
+
+    Returns
+    -------
+    tuple[DataFrame, DataFrame]
+        Inner and outer draw files.
+
+    """
+
+    beta_info = summary["beta"]
+    gamma_info = summary["gamma"]
+    inner_beta_sd = beta_info[1]
+    outer_beta_sd = np.sqrt(
+        beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    )
+    inner_beta_samples = np.random.normal(
+        loc=beta_info[0],
+        scale=inner_beta_sd,
+        size=settings["draws"]["num_draws"],
+    )
+    outer_beta_samples = np.random.normal(
+        loc=beta_info[0],
+        scale=outer_beta_sd,
+        size=settings["draws"]["num_draws"],
+    )
+    inner_draws = np.outer(df_coef.coef, inner_beta_samples)
+    outer_draws = np.outer(df_coef.coef, outer_beta_samples)
+    df_inner_draws = pd.DataFrame(
+        np.hstack([df_coef["cat"].to_numpy().reshape(-1, 1), inner_draws]),
+        columns=["risk_cat"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    )
+    df_outer_draws = pd.DataFrame(
+        np.hstack([df_coef["cat"].to_numpy().reshape(-1, 1), outer_draws]),
+        columns=["risk_cat"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    )
+
+    return df_inner_draws, df_outer_draws
+
+
+def get_quantiles(
+    settings: dict,
+    summary: dict,
+    df_coef: DataFrame,
+) -> tuple[DataFrame, DataFrame]:
+    """Create effect quantiles for the pipeline.
+
+    Parameters
+    ----------
+    settings
+        The settings for complete the summary.
+    summary
+        The completed summary file.
+    df_coef
+        Data frame containing fitted beta coefficients
+
+    Returns
+    -------
+    tuple[DataFrame, DataFrame]
+        Inner and outer quantile files.
+
+    """
+
+    beta_info = summary["beta"]
+    gamma_info = summary["gamma"]
+    inner_beta_sd = beta_info[1]
+    outer_beta_sd = np.sqrt(
+        beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    )
+    # get quantiles
+    cats = df_coef["cat"].to_numpy().reshape(-1, 1)
+    coefs = df_coef["coef"].to_numpy()
+    quantiles = np.asarray(settings["draws"]["quantiles"])
+    signal_sign_index = np.zeros(coefs.size, dtype=int)
+    signal_sign_index[coefs < 0] = 1
+    inner_beta_quantiles = [
+        norm.ppf(quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
+        norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
+    ]
+    inner_beta_quantiles = np.vstack(inner_beta_quantiles).T
+    outer_beta_quantiles = [
+        norm.ppf(quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
+        norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
+    ]
+    outer_beta_quantiles = np.vstack(outer_beta_quantiles).T
+    inner_quantiles = [
+        inner_beta_quantiles[i][signal_sign_index] * coefs
+        for i in range(len(quantiles))
+    ]
+    inner_quantiles = np.vstack(inner_quantiles).T
+    outer_quantiles = [
+        outer_beta_quantiles[i][signal_sign_index] * coefs
+        for i in range(len(quantiles))
+    ]
+    outer_quantiles = np.vstack(outer_quantiles).T
+
+    df_inner_quantiles = pd.DataFrame(
+        np.hstack([cats, inner_quantiles]),
+        columns=["risk_cat"] + list(map(str, quantiles)),
+    )
+    df_outer_quantiles = pd.DataFrame(
+        np.hstack([cats, outer_quantiles]),
+        columns=["risk_cat"] + list(map(str, quantiles)),
+    )
+
+    return df_inner_quantiles, df_outer_quantiles
+
+
+def plot_linear_model(
+    name: str,
+    summary: dict,
+    df: DataFrame,
+    df_coef: DataFrame,
+    signal_model: MRBRT,
+    linear_model: MRBRT,
+    show_ref: bool = True,
+) -> Figure:
+    """Plot the linear model
+
+    Parameters
+    ----------
+    name
+        Name of the pair
+    summary
+        Completed summary file.
+    df
+        Data frame contains the training data.
+    df_coef
+        Data frame containing the fitted beta coefficients
+    signal_model
+        Fitted signal model for risk curve.
+    linear_model
+        Fitted linear model for risk curve.
+    show_ref
+        Whether to show the reference line. Default is `True`.
+
+    Returns
+    -------
+    Figure
+        The figure object for linear model.
+
+    """
+    offset = 0.05
+    # create fig obj
+    fig, ax = plt.subplots(1, 2, figsize=(16, 5))
+
+    # plot data
+    _plot_data(
+        name,
+        summary,
+        df,
+        df_coef,
+        ax[0],
+        signal_model,
+        linear_model,
+        show_ref=show_ref,
+    )
+    # plot beta coefficients and uncertainty
+    beta = summary["beta"]
+    gamma = summary["gamma"]
+    inner_beta_sd = beta[1]
+    outer_beta_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2 * gamma[1])
+
+    pred = df_coef.coef * beta[0]
+    df_coef["outer_ui_low"] = (beta[0] - 1.96 * outer_beta_sd) * df_coef.coef
+    df_coef["inner_ui_low"] = (beta[0] - 1.96 * inner_beta_sd) * df_coef.coef
+    df_coef["inner_ui_hi"] = (beta[0] + 1.96 * inner_beta_sd) * df_coef.coef
+    df_coef["outer_ui_hi"] = (beta[0] + 1.96 * outer_beta_sd) * df_coef.coef
+
+    if summary["normalize_to_tmrel"]:
+        index = np.argmin(pred)
+        pred -= pred[index]
+        df_coef["outer_ui_low"] -= df_coef.outer_ui_low[None, index]
+        df_coef["inner_ui_low"] -= df_coef.inner_ui_low[None, index]
+        df_coef["inner_ui_hi"] -= df_coef.inner_ui_hi[None, index]
+        df_coef["outer_ui_hi"] -= df_coef.outer_ui_hi[None, index]
+
+    log_bprf = pred * (1.0 - 1.645 * outer_beta_sd / beta[0])
+
+    x_start = df_coef["x_start"] + offset
+    x_end = df_coef["x_end"] - offset
+
+    # Plot coefficients
+    ax[0].plot([x_start, x_end], [pred] * 2, color="#008080")
+    # Plot BPRF
+    ax[0].plot([x_start, x_end], [log_bprf] * 2, color="red")
+    # Fill between UIs
+    for i, row in df_coef.iterrows():
+        ax[0].fill_between(
+            [row["x_start"] + offset, row["x_end"] - offset],
+            row["inner_ui_low"],
+            row["inner_ui_hi"],
+            color="gray",
+            alpha=0.2,
+        )
+    for i, row in df_coef.iterrows():
+        ax[0].fill_between(
+            [row["x_start"] + offset, row["x_end"] - offset],
+            row["outer_ui_low"],
+            row["outer_ui_hi"],
+            color="gray",
+            alpha=0.2,
+        )
+
+    # plot funnel
+    _plot_funnel(summary, df, ax[1])
 
     return fig
 
@@ -375,6 +753,7 @@ def _plot_data(
     df_coef: DataFrame,
     ax: Axes,
     signal_model: MRBRT = None,
+    linear_model: Optional[MRBRT] = None,
     show_ref: bool = True,
 ) -> Axes:
     """Plot data points
@@ -433,12 +812,18 @@ def _plot_data(
         )
     )
 
-    alt_obs = df.ln_rr + df.coef
+    ref_obs = df.coef
+    if linear_model is not None:
+        ref_obs *= linear_model.beta_soln[0]
+    alt_obs = df.ln_rr + ref_obs
 
     # shift data position normalize to tmrel
-    # if summary["normalize_to_tmrel"]:
-    #     beta_min = df_coef.coef.min()
-    #     alt_obs -= beta_min
+    if summary["normalize_to_tmrel"]:
+        beta_min = df_coef.coef.min()
+        if linear_model is not None:
+            beta_min *= linear_model.beta_soln[0]
+        ref_obs -= beta_min
+        alt_obs -= beta_min
 
     # Add a little jitter
     alt_cat_mid_jitter = df.alt_cat_mid + np.random.uniform(
@@ -465,7 +850,7 @@ def _plot_data(
     )
     if show_ref:
         for x_0, y_0, x_1, y_1 in zip(
-            alt_cat_mid_jitter, alt_obs, df["ref_cat_mid"], df["coef"]
+            alt_cat_mid_jitter, alt_obs, df["ref_cat_mid"], ref_obs
         ):
             ax.plot(
                 [x_0, x_1],
@@ -488,297 +873,55 @@ def _plot_data(
     return ax
 
 
-# def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
-#     """Create linear model for effect.
+def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
+    """Plot the funnel plot
 
-#     Parameters
-#     ----------
-#     df
-#         Data frame contains training data without outliers.
-#     cov_finder_result
-#         Summary result for bias covariate selection.
+    Parameters
+    ----------
+    summary
+        Complete summary file.
+    df
+        Data frame that contains training data.
+    ax
+        Axes of the figure. Usually corresponding to one panel of a figure.
 
-#     Returns
-#     -------
-#     MRBRT
-#         The linear model for effect.
+    Returns
+    -------
+    Axes
+        Return the axes back for further plotting.
 
-#     """
-#     data = MRData()
-#     data.load_df(
-#         df,
-#         col_obs="ln_rr",
-#         col_obs_se="ln_rr_se",
-#         col_covs=cov_finder_result["selected_covs"],
-#         col_study_id="study_id",
-#         col_data_id="seq",
-#     )
-#     cov_models = [
-#         LinearCovModel("intercept", use_re=True),
-#     ]
-#     for cov_name in cov_finder_result["selected_covs"]:
-#         cov_models.append(
-#             LinearCovModel(
-#                 cov_name, prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]]
-#             )
-#         )
-#     model = MRBRT(data, cov_models)
-#     return model
+    """
 
+    # add residual information
+    beta, gamma = summary["beta"], summary["gamma"]
+    residual = df.ln_rr.values - df.signal.values * beta[0]
+    residual_sd = np.sqrt(
+        df.ln_rr_se.values**2 + df.signal.values**2 * gamma[0]
+    )
 
-# def get_linear_model_summary(
-#     summary: dict,
-#     df: DataFrame,
-#     linear_model: MRBRT,
-# ) -> dict:
-#     """Complete the summary from the signal model.
+    index = df.is_outlier == 1
+    sd_max = residual_sd.max() * 1.1
+    ax.set_ylim(sd_max, 0.0)
+    # plot data
+    ax.scatter(
+        residual, residual_sd, color="#008080", alpha=0.5, edgecolor="none"
+    )
+    ax.scatter(
+        residual[index], residual_sd[index], color="red", alpha=0.5, marker="x"
+    )
+    # plot funnel
+    ax.fill_betweenx(
+        [0.0, sd_max],
+        [0.0, -1.96 * sd_max],
+        [0.0, 1.96 * sd_max],
+        color="gray",
+        alpha=0.2,
+    )
+    ax.plot([0.0, -1.96 * sd_max], [0.0, sd_max], linewidth=1, color="gray")
+    ax.plot([0.0, 1.96 * sd_max], [0.0, sd_max], linewidth=1, color="gray")
+    ax.axvline(0.0, color="gray", linestyle="--", linewidth=1)
+    # set title and labels
+    ax.set_xlabel("residual")
+    ax.set_ylabel("residual sd")
 
-#     Parameters
-#     ----------
-#     summary
-#         Summary from the signal model.
-#     df
-#         Data frame contains the all dataset.
-#     linear_model
-#         Fitted linear model for effect.
-
-#     Returns
-#     -------
-#     dict
-#         Summary file contains all necessary information.
-
-#     """
-#     beta_info = get_beta_info(linear_model, cov_name="intercept")
-#     gamma_info = get_gamma_info(linear_model)
-#     summary["beta"] = [float(beta_info[0]), float(beta_info[1])]
-#     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
-
-#     # compute the score and add star rating
-#     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
-#     sign = np.sign(beta_info[0])
-#     inner_ui = beta_info[0] - sign * 1.96 * beta_info[1]
-#     burden_of_proof = beta_info[0] - sign * 1.645 * beta_sd
-
-#     if inner_ui * beta_info[0] < 0:
-#         summary["score"] = float("nan")
-#         summary["star_rating"] = 0
-#     else:
-#         score = float(0.5 * sign * burden_of_proof)
-#         summary["score"] = score
-#         #Assign star rating based on ROS
-#         if np.isnan(score):
-#             summary["star_rating"] = 0
-#         elif score > np.log(1 + 0.85):
-#             summary["star_rating"] = 5
-#         elif score > np.log(1 + 0.50):
-#             summary["star_rating"] = 4
-#         elif score > np.log(1 + 0.15):
-#             summary["star_rating"] = 3
-#         elif score > 0:
-#             summary["star_rating"] = 2
-#         else:
-#             summary["star_rating"] = 1
-
-#     # compute the publication bias
-#     index = df.is_outlier == 0
-#     residual = df.ln_rr.values[index] - beta_info[0]
-#     residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
-#     weighted_residual = residual / residual_sd
-#     r_mean = weighted_residual.mean()
-#     r_sd = 1 / np.sqrt(weighted_residual.size)
-#     pval = 1 - norm.cdf(np.abs(r_mean / r_sd))
-#     summary["pub_bias"] = int(pval < 0.05)
-#     summary["pub_bias_pval"] = float(pval)
-
-#     return summary
-
-
-# def get_draws(
-#     settings: dict,
-#     summary: dict,
-# ) -> tuple[DataFrame, DataFrame]:
-#     """Create effect draws for the pipeline.
-
-#     Parameters
-#     ----------
-#     settings
-#         Settings for complete the summary.
-#     summary
-#         Summary of the models.
-
-#     Returns
-#     -------
-#     tuple[DataFrame, DataFrame]
-#         Inner and outer draw files.
-
-#     """
-#     beta_info = summary["beta"]
-#     gamma_info = summary["gamma"]
-#     inner_beta_sd = beta_info[1]
-#     outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
-#     inner_beta_samples = np.random.normal(
-#         loc=beta_info[0], scale=inner_beta_sd, size=settings["draws"]["num_draws"]
-#     )
-#     outer_beta_samples = np.random.normal(
-#         loc=beta_info[0], scale=outer_beta_sd, size=settings["draws"]["num_draws"]
-#     )
-#     df_inner_draws = pd.DataFrame(
-#         inner_beta_samples[None, :],
-#         columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-#     )
-#     df_outer_draws = pd.DataFrame(
-#         outer_beta_samples[None, :],
-#         columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-#     )
-
-#     return df_inner_draws, df_outer_draws
-
-
-# def get_quantiles(
-#     settings: dict,
-#     summary: dict,
-# ) -> tuple[DataFrame, DataFrame]:
-#     """Create effect quantiles for the pipeline.
-
-#     Parameters
-#     ----------
-#     settings
-#         The settings for complete the summary.
-#     summary
-#         The completed summary file.
-
-#     Returns
-#     -------
-#     tuple[DataFrame, DataFrame]
-#         Inner and outer quantile files.
-
-#     """
-#     beta_info = summary["beta"]
-#     gamma_info = summary["gamma"]
-#     inner_beta_sd = beta_info[1]
-#     outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
-#     inner_beta_quantiles = norm.ppf(
-#         settings["draws"]["quantiles"], loc=beta_info[0], scale=inner_beta_sd
-#     )
-#     outer_beta_quantiles = norm.ppf(
-#         settings["draws"]["quantiles"], loc=beta_info[0], scale=outer_beta_sd
-#     )
-
-#     df_inner_quantiles = pd.DataFrame(
-#         inner_beta_quantiles[None, :],
-#         columns=[str(q) for q in settings["draws"]["quantiles"]],
-#     )
-#     df_outer_quantiles = pd.DataFrame(
-#         outer_beta_quantiles[None, :],
-#         columns=[str(q) for q in settings["draws"]["quantiles"]],
-#     )
-
-#     return df_inner_quantiles, df_outer_quantiles
-
-# def plot_linear_model(
-#     summary: dict,
-#     df: DataFrame,
-# ) -> Figure:
-#     """Plot the linear model
-
-#     Parameters
-#     ----------
-#     summary
-#         Completed summary file.
-#     df
-#         Data frame contains the training data.
-
-#     Returns
-#     -------
-#     Figure
-#         The figure object for linear model.
-
-#     """
-#     # create fig obj
-#     fig, ax = plt.subplots(figsize=(8, 5))
-
-#     # plot funnel
-#     _plot_funnel(summary, df, ax)
-#     ax.set_title(summary["name"].replace("-", " / "), loc="left")
-
-#     return fig
-
-
-# def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
-#     """Plot the funnel plot
-
-#     Parameters
-#     ----------
-#     summary
-#         Complete summary file.
-#     df
-#         Data frame that contains training data.
-#     ax
-#         Axes of the figure. Usually corresponding to one panel of a figure.
-
-#     Returns
-#     -------
-#     Axes
-#         Return the axes back for further plotting.
-
-#     """
-
-#     # add residual information
-#     beta, gamma = summary["beta"], summary["gamma"]
-#     beta_inner_sd = beta[1]
-#     beta_outer_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2.0 * gamma[1])
-#     beta_inner = [beta[0] - 1.96 * beta_inner_sd, beta[0] + 1.96 * beta_inner_sd]
-#     beta_outer = [beta[0] - 1.96 * beta_outer_sd, beta[0] + 1.96 * beta_outer_sd]
-
-#     # plot data
-#     ax.scatter(df.ln_rr, df.ln_rr_se, color="#008080", alpha=0.4, edgecolor="none")
-#     outlier_index = df.is_outlier == 1
-#     ax.scatter(
-#         df.ln_rr[outlier_index],
-#         df.ln_rr_se[outlier_index],
-#         color="red",
-#         alpha=0.4,
-#         marker="x",
-#     )
-
-#     # plot funnel
-#     se_max = df.ln_rr_se.max()
-#     ax.fill_betweenx(
-#         [0.0, se_max],
-#         [beta[0], beta[0] - 1.96 * se_max],
-#         [beta[0], beta[0] + 1.96 * se_max],
-#         color="gray",
-#         alpha=0.2,
-#     )
-#     ax.plot(
-#         [beta[0], beta[0] - 1.96 * se_max], [0.0, se_max], linewidth=1, color="gray"
-#     )
-#     ax.plot(
-#         [beta[0], beta[0] + 1.96 * se_max], [0.0, se_max], linewidth=1, color="gray"
-#     )
-#     ax.set_ylim([se_max, 0.0])
-
-#     # plot vertical lines
-#     ax.axvline(beta[0] - np.sign(beta[0]) * 1.645 * beta_outer_sd, color="red")
-#     ax.axvline(0.0, color="gray", linestyle="--", linewidth=1)
-#     ax.axvline(beta[0], color="#008080")
-#     ax.fill_betweenx(
-#         [0.0, se_max],
-#         [beta_inner[0]] * 2,
-#         [beta_inner[1]] * 2,
-#         color="#008080",
-#         alpha=0.2,
-#     )
-#     ax.fill_betweenx(
-#         [0.0, se_max],
-#         [beta_outer[0]] * 2,
-#         [beta_outer[1]] * 2,
-#         color="#008080",
-#         alpha=0.2,
-#     )
-
-#     # set title and labels
-#     ax.set_xlabel("ln_rr")
-#     ax.set_ylabel("ln_rr_se")
-
-#     return ax
+    return ax
