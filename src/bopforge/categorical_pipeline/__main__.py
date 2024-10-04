@@ -73,7 +73,9 @@ def fit_signal_model(result_folder: Path) -> None:
     df = functions.convert_bc_to_em(df, signal_model)
     df_coef = functions.get_coefs(df, all_settings, signal_model)
 
-    summary = functions.get_signal_model_summary(name, df, df_coef)
+    summary = functions.get_signal_model_summary(
+        name, all_settings, df, df_coef
+    )
 
     fig = functions.plot_signal_model(
         name,
@@ -127,48 +129,64 @@ def select_bias_covs(result_folder: Path) -> None:
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-# def fit_linear_model(result_folder: Path) -> None:
-#     """Fit the final linear mixed effect model for the process. We will fit the
-#     linear model using selected bias covariates in this step. And we will create
-#     draws and quantiles for the effects. A single panels figure will be plotted
-#     to show the fit and all the important result information is documented in
-#     the `summary.yaml` file.
+def fit_linear_model(result_folder: Path) -> None:
+    """Fit the final linear mixed effect model for the process. We will fit the
+    linear model using selected bias covariates in this step. And we will create
+    draws and quantiles for the effects. A single panels figure will be plotted
+    to show the fit and all the important result information is documented in
+    the `summary.yaml` file.
 
-#     Parameters
-#     ----------
-#     dataif
-#         Data interface in charge of file reading and writing.
+    Parameters
+    ----------
+    dataif
+        Data interface in charge of file reading and writing.
 
-#     """
-#     dataif = DataInterface(result=result_folder)
-#     name = dataif.result.name
+    """
+    dataif = DataInterface(result=result_folder)
+    name = dataif.result.name
 
-#     df = dataif.load_result(f"{name}.csv")
-#     df_train = df[df.is_outlier == 0].copy()
+    df = dataif.load_result(f"{name}.csv")
+    df_train = df[df.is_outlier == 0].copy()
 
-#     cov_finder_result = dataif.load_result("cov_finder_result.yaml")
-#     all_settings = dataif.load_result("settings.yaml")
-#     settings = all_settings["complete_summary"]
-#     summary = dataif.load_result("summary.yaml")
+    cov_finder_result = dataif.load_result("cov_finder_result.yaml")
+    all_settings = dataif.load_result("settings.yaml")
+    settings = all_settings["complete_summary"]
+    summary = dataif.load_result("summary.yaml")
+    signal_model = dataif.load_result("signal_model.pkl")
 
-#     linear_model = functions.get_linear_model(df_train, cov_finder_result)
-#     linear_model.fit_model()
+    linear_model = functions.get_linear_model(df_train, cov_finder_result)
+    linear_model.fit_model()
 
-#     summary = functions.get_linear_model_summary(summary, df, linear_model)
+    df_coef = functions.get_coefs(df, all_settings, signal_model)
 
-#     df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
+    summary = functions.get_linear_model_summary(
+        settings, summary, df, df_coef, linear_model
+    )
 
-#     df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(settings, summary)
+    df_inner_draws, df_outer_draws = functions.get_draws(
+        settings, summary, df_coef
+    )
+    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
+        settings, summary, df_coef
+    )
 
-#     fig = functions.plot_linear_model(summary, df)
+    fig = functions.plot_linear_model(
+        name,
+        summary,
+        df,
+        df_coef,
+        signal_model,
+        linear_model,
+        show_ref=all_settings["figure"]["show_ref"],
+    )
 
-#     dataif.dump_result(linear_model, "linear_model.pkl")
-#     dataif.dump_result(summary, "summary.yaml")
-#     dataif.dump_result(df_inner_draws, "inner_draws.csv")
-#     dataif.dump_result(df_outer_draws, "outer_draws.csv")
-#     dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
-#     dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
-#     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
+    dataif.dump_result(linear_model, "linear_model.pkl")
+    dataif.dump_result(summary, "summary.yaml")
+    dataif.dump_result(df_inner_draws, "inner_draws.csv")
+    dataif.dump_result(df_outer_draws, "outer_draws.csv")
+    dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
+    dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
+    fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
 def run(

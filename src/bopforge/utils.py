@@ -32,7 +32,9 @@ def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
     return des_dict
 
 
-def get_beta_info(model: MRBRT, cov_name: str = "signal") -> Tuple[float, float]:
+def get_beta_info(
+    model: MRBRT, cov_name: str = "signal"
+) -> Tuple[float, float]:
     """Get the posterior information of beta.
 
     Parameters
