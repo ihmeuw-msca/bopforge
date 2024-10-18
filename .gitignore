@@ -189,4 +189,7 @@ result/
 # vscode
 .vscode/
 
+# MacOS DS Store files
+.DS_Store
+
 results/
