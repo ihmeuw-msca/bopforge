@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "IHME Math Sciences", email = "ihme.math.sciences@gmail.com" },
 ]
-dependencies = ["numpy", "scipy", "pandas", "matplotlib", "pplkit"]
+dependencies = ["numpy", "scipy", "pandas", "matplotlib", "mrtool==0.2.0", "pplkit"]
 
 [project.optional-dependencies]
 test = ["pytest"]

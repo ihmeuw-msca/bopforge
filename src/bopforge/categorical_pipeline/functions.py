@@ -367,14 +367,14 @@ def plot_signal_model(
             ax.plot(
                 [row["x_start"] + offset, row["x_end"] - offset],
                 [row["coef"] - coef_min] * 2,
-                color="black",
+                color="#008080",
             )
     else:
         for i, row in df_coef.iterrows():
             ax.plot(
                 [row["x_start"] + offset, row["x_end"] - offset],
                 [row["coef"]] * 2,
-                color="black",
+                color="#008080",
             )
 
     return fig
