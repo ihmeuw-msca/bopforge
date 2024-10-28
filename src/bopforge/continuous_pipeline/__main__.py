@@ -4,10 +4,11 @@ import warnings
 from argparse import ArgumentParser
 from pathlib import Path
 
-import bopforge.continuous_pipeline.functions as functions
 import numpy as np
-from bopforge.utils import fill_dict, ParseKwargs
 from pplkit.data.interface import DataInterface
+
+import bopforge.continuous_pipeline.functions as functions
+from bopforge.utils import ParseKwargs, fill_dict
 
 warnings.filterwarnings("ignore")
 
@@ -61,7 +62,11 @@ def fit_signal_model(dataif: DataInterface) -> None:
     settings = all_settings["fit_signal_model"]
 
     signal_model = functions.get_signal_model(settings, df)
-    signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
+    signal_model.fit_model(
+        outer_step_size=200,
+        outer_max_iter=100,
+        inner_options=dict(gtol=1e-6, xtol=1e-6),
+    )
 
     df = functions.convert_bc_to_em(df, signal_model)
 
@@ -235,7 +240,11 @@ def run(
 def main(args=None) -> None:
     parser = ArgumentParser(description="Continuous burden of proof pipeline.")
     parser.add_argument(
-        "-i", "--input", type=os.path.abspath, required=True, help="Input data folder"
+        "-i",
+        "--input",
+        type=os.path.abspath,
+        required=True,
+        help="Input data folder",
     )
     parser.add_argument(
         "-o",
