@@ -44,7 +44,7 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
             ref_cov="ref_risk_cat",
             ref_cat=settings["cat_cov_model"]["ref_cat"],
             prior_order=settings["cat_cov_model"]["prior_order"],
-            use_re=True,
+            use_re=False,
         )
     ]
 
@@ -481,7 +481,7 @@ def get_linear_model_summary(
     # Number of alternative categories
     n = pred.size - 1
     # Index with largest signed coefficient
-    max_idx = np.argmax(sign * pred)
+    max_idx = np.argmax(signed_bprf)
     if np.any(np.prod(inner_ui[:,], axis=0) < 0):
         summary["score"] = float("nan")
         summary["star_rating"] = 0
