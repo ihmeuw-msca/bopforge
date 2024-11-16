@@ -142,11 +142,20 @@ def get_signal_model_summary(
         Summary dictionary from the signal model.
 
     """
+    ref_cat = all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
+    if ref_cat:
+        ref_cat = ref_cat
+    else:
+        unique_cats, counts = np.unique(
+            np.hstack([df.ref_risk_cat, df.alt_risk_cat]), return_counts=True
+        )
+        ref_cat = unique_cats[counts.argmax()]
 
     summary = {
         "name": name,
         "risk_type": str(df.risk_type.values[0]),
-        "beta_coef_signal": df_coef.coef.tolist(),
+        "beta_coef_signal": dict(zip(df_coef.cat, df_coef.coef)),
+        "ref_cat": ref_cat,
     }
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
@@ -542,6 +551,7 @@ def get_linear_model_summary(
     """
     # load summary
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
+    ref_cat = summary["ref_cat"]
 
     # solution of the final model
     beta_info = get_beta_info(linear_model)
@@ -580,6 +590,10 @@ def get_linear_model_summary(
             (1 / n) * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
         )
         summary["score"] = score
+        df_alt_coefs = df_coef[df_coef["cat"] != ref_cat]
+        summary["score_by_category"] = dict(
+            zip(df_alt_coefs.cat, (0.5 * signed_bprf[df_alt_coefs.index]))
+        )
         # Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
