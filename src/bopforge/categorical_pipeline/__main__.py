@@ -70,7 +70,8 @@ def fit_signal_model(result_folder: Path) -> None:
     signal_model = functions.get_signal_model(settings, df)
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
-    df = functions.convert_bc_to_em(df, signal_model)
+    df = functions.add_cols(df, signal_model)
+    # df = functions.convert_bc_to_em(df, signal_model)
     df_coef = functions.get_coefs(df, all_settings, signal_model)
 
     summary = functions.get_signal_model_summary(
@@ -114,8 +115,9 @@ def select_bias_covs(result_folder: Path) -> None:
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]
 
-    cov_finder_linear_model = functions.get_cov_finder_linear_model(df)
-    cov_finder_linear_model.fit_model()
+    cov_finder_linear_model = dataif.load_result("signal_model.pkl")
+    # cov_finder_linear_model = functions.get_cov_finder_linear_model(df)
+    # cov_finder_linear_model.fit_model()
 
     cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model)
     cov_finder.select_covs(verbose=True)
@@ -154,7 +156,9 @@ def fit_linear_model(result_folder: Path) -> None:
     summary = dataif.load_result("summary.yaml")
     signal_model = dataif.load_result("signal_model.pkl")
 
-    linear_model = functions.get_linear_model(df_train, cov_finder_result)
+    linear_model = functions.get_linear_model(
+        df_train, all_settings, cov_finder_result
+    )
     linear_model.fit_model()
 
     df_coef = functions.get_coefs(df, all_settings, signal_model)

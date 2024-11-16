@@ -28,13 +28,13 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
         Signal model to access the strength of the prior on the bias-covariate.
 
     """
-
+    col_covs = [col for col in df.columns if col.startswith("cov_")]
     data = MRData()
     data.load_df(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=["ref_risk_cat", "alt_risk_cat"],
+        col_covs=col_covs + ["ref_risk_cat", "alt_risk_cat"],
         col_study_id="study_id",
         col_data_id="seq",
     )
@@ -53,43 +53,71 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
     return signal_model
 
 
-def convert_bc_to_em(df: DataFrame, signal_model: MRBRT) -> DataFrame:
-    """Convert bias covariate to effect modifier and add one column to indicate
-    if data points are inliers or outliers.
+def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
+    """Add columns of outlier indicator.
 
     Parameters
     ----------
     df
-        Data frame contains the training data.
+        Data frame that contains the training data.
     signal_model
         Fitted signal model.
 
     Returns
     -------
     DataFrame
-        DataFrame with additional columns for effect modifiers and oulier
-        indicator.
+        DataFrame with additional columns of oulier indicator.
 
     """
+
     data = signal_model.data
-    signal = signal_model.predict(data)
     is_outlier = (signal_model.w_soln < 0.1).astype(int)
     df = df.merge(
-        pd.DataFrame(
-            {
-                "seq": data.data_id,
-                "signal": signal,
-                "is_outlier": is_outlier,
-            }
-        ),
+        pd.DataFrame({"seq": data.data_id, "is_outlier": is_outlier}),
         how="outer",
         on="seq",
     )
-    for col in df.columns:
-        if col.startswith("cov_"):
-            df["em" + col[3:]] = df[col] * df["signal"]
 
     return df
+
+
+# def convert_bc_to_em(df: DataFrame, signal_model: MRBRT) -> DataFrame:
+#     """Convert bias covariate to effect modifier and add one column to indicate
+#     if data points are inliers or outliers.
+
+#     Parameters
+#     ----------
+#     df
+#         Data frame contains the training data.
+#     signal_model
+#         Fitted signal model.
+
+#     Returns
+#     -------
+#     DataFrame
+#         DataFrame with additional columns for effect modifiers and oulier
+#         indicator.
+
+#     """
+#     data = signal_model.data
+#     signal = signal_model.predict(data)
+#     is_outlier = (signal_model.w_soln < 0.1).astype(int)
+#     df = df.merge(
+#         pd.DataFrame(
+#             {
+#                 "seq": data.data_id,
+#                 "signal": signal,
+#                 "is_outlier": is_outlier,
+#             }
+#         ),
+#         how="outer",
+#         on="seq",
+#     )
+#     for col in df.columns:
+#         if col.startswith("cov_"):
+#             df["em" + col[3:]] = df[col] * df["signal"]
+
+#     return df
 
 
 def get_signal_model_summary(
@@ -126,37 +154,37 @@ def get_signal_model_summary(
     return summary
 
 
-def get_cov_finder_linear_model(df: DataFrame) -> MRBRT:
-    """Create the linear model for the CovFinder to determine the strength of
-    the prior on the bias covariates.
+# def get_cov_finder_linear_model(df: DataFrame) -> MRBRT:
+#     """Create the linear model for the CovFinder to determine the strength of
+#     the prior on the bias covariates.
 
-    Parameters
-    ----------
-    df
-        Data frame that contains the training data, but without the outlier.
+#     Parameters
+#     ----------
+#     df
+#         Data frame that contains the training data, but without the outlier.
 
-    Returns
-    -------
-    MRBRT
-        The linear model.
+#     Returns
+#     -------
+#     MRBRT
+#         The linear model.
 
-    """
-    col_covs = ["signal"] + [col for col in df.columns if col.startswith("em_")]
-    data = MRData()
-    data.load_df(
-        df,
-        col_obs="ln_rr",
-        col_obs_se="ln_rr_se",
-        col_covs=col_covs,
-        col_study_id="study_id",
-        col_data_id="seq",
-    )
-    cov_models = [
-        LinearCovModel("signal", use_re=True),
-    ]
-    cov_finder_linear_model = MRBRT(data, cov_models)
+#     """
+#     col_covs = ["signal"] + [col for col in df.columns if col.startswith("em_")]
+#     data = MRData()
+#     data.load_df(
+#         df,
+#         col_obs="ln_rr",
+#         col_obs_se="ln_rr_se",
+#         col_covs=col_covs,
+#         col_study_id="study_id",
+#         col_data_id="seq",
+#     )
+#     cov_models = [
+#         LinearCovModel("signal", use_re=True),
+#     ]
+#     cov_finder_linear_model = MRBRT(data, cov_models)
 
-    return cov_finder_linear_model
+#     return cov_finder_linear_model
 
 
 def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
@@ -175,23 +203,61 @@ def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
         The instance of the CovFinder class.
 
     """
+    ###################
     data = cov_finder_linear_model.data
-    beta_info = get_beta_info(cov_finder_linear_model, cov_name="signal")
+    cats = cov_finder_linear_model.cov_models[0].cats
+    ref_cat = cov_finder_linear_model.cov_models[0].ref_cat
+    alt_cats = [cat for cat in cats if cat != ref_cat]
+
+    alt_mat, ref_mat = cov_finder_linear_model.cov_models[0].create_design_mat(
+        data
+    )
+    design_mat = alt_mat - ref_mat
+    df = data.to_df()
+    df = pd.concat(
+        [
+            df,
+            pd.DataFrame(
+                design_mat,
+                columns=[col for col in cats],
+            ),
+        ],
+        axis=1,
+    )
+    df["seq"] = range(df.shape[0])
+    col_covs = [col for col in df.columns if col.startswith("cov_")]
+    col_alt_cats = [col for col in df.columns if col in alt_cats]
+    data = MRData()
+    data.load_df(
+        df,
+        col_obs="obs",
+        col_obs_se="obs_se",
+        col_covs=col_covs + col_alt_cats + ["ref_risk_cat", "alt_risk_cat"],
+        col_study_id="study_id",
+        col_data_id="seq",
+    )
+
+    beta_info = get_beta_info(cov_finder_linear_model, cov_name=None)
+    index = list(cats).index(ref_cat)
+    beta_info = tuple(np.delete(arr, index) for arr in beta_info)
+
+    ###################
+
+    # TODO: adjust pre-selected covariates, add alt cats.
+    bias_covs = [name for name in data.covs.keys() if name.startswith("cov_")]
 
     # covariate selection
     pre_selected_covs = settings["cov_finder"]["pre_selected_covs"]
     if isinstance(pre_selected_covs, str):
         pre_selected_covs = [pre_selected_covs]
-    pre_selected_covs = [
-        col.replace("cov_", "em_") for col in pre_selected_covs
-    ]
-    if "signal" not in pre_selected_covs:
-        pre_selected_covs.append("signal")
+    if "intercept" not in pre_selected_covs:
+        pre_selected_covs.append("intercept")
     settings["cov_finder"]["pre_selected_covs"] = pre_selected_covs
     candidate_covs = [
         cov_name
-        for cov_name in data.covs.keys()
-        if cov_name not in pre_selected_covs + ["intercept"]
+        for cov_name in bias_covs + alt_cats
+        # for cov_name in data.covs.keys()
+        if cov_name not in pre_selected_covs
     ]
     settings["cov_finder"] = {
         **dict(
@@ -207,7 +273,7 @@ def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
     cov_finder = CovFinder(
         data,
         covs=candidate_covs,
-        beta_gprior_std=0.1 * beta_info[1],
+        # beta_gprior_std=0.1 * beta_info[1],
         **settings["cov_finder"],
     )
 
@@ -232,16 +298,17 @@ def get_cov_finder_result(
         Result summary for bias covariate selection.
 
     """
-    beta_info = get_beta_info(cov_finder_linear_model, cov_name="signal")
+    beta_info = get_beta_info(cov_finder_linear_model, cov_name=None)
     selected_covs = [
         cov_name
         for cov_name in cov_finder.selected_covs
-        if cov_name != "signal"
+        if cov_name != "intercept"
     ]
 
     # save results
     cov_finder_result = {
-        "beta_sd": float(beta_info[1] * 0.1),
+        "beta_sd": (beta_info[1] * 0.1).tolist(),
+        # "beta_sd": float(beta_info[1] * 0.1),
         "selected_covs": selected_covs,
     }
 
@@ -380,13 +447,17 @@ def plot_signal_model(
     return fig
 
 
-def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
+def get_linear_model(
+    df: DataFrame, settings: dict, cov_finder_result: dict
+) -> MRBRT:
     """Create linear model for effect.
 
     Parameters
     ----------
     df
         Data frame contains training data without outliers.
+    settings
+        Settings for the categories
     cov_finder_result
         Summary result for bias covariate selection.
 
@@ -396,27 +467,46 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
         The linear model for effect.
 
     """
+    col_covs = cov_finder_result["selected_covs"]
+    beta_sd = cov_finder_result["beta_sd"]
+    cov_dict = {cov: beta for cov, beta in zip(col_covs, beta_sd)}
+    bias_covs = [cov for cov in col_covs if cov.startswith("cov")]
+    beta_sd_bias_covs = [cov_dict[cov] for cov in bias_covs]
+
     data = MRData()
     data.load_df(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=["signal"] + cov_finder_result["selected_covs"],
+        col_covs=bias_covs,
         col_study_id="study_id",
         col_data_id="seq",
     )
     cov_models = [
-        LinearCovModel("signal", use_re=True),
-        LinearCovModel("intercept", use_re=True, prior_beta_uniform=[0.0, 0.0]),
+        LinearCatCovModel(
+            alt_cov="alt_risk_cat",
+            ref_cov="ref_risk_cat",
+            ref_cat=settings["fit_signal_model"]["cat_cov_model"]["ref_cat"],
+            prior_order=settings["fit_signal_model"]["cat_cov_model"][
+                "prior_order"
+            ],
+            use_re=True,
+        )
     ]
-    for cov_name in cov_finder_result["selected_covs"]:
+    # cov_models = [
+    #     LinearCovModel("signal", use_re=True),
+    #     LinearCovModel("intercept", use_re=True, prior_beta_uniform=[0.0, 0.0]),
+    # ]
+    # for cov_name in cov_finder_result["selected_covs"]:
+    for cov_name in bias_covs:
         cov_models.append(
             LinearCovModel(
                 cov_name,
-                prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
+                prior_beta_gaussian=[0.0, beta_sd_bias_covs],
             )
         )
     model = MRBRT(data, cov_models)
+    # model = MRBRT(data, cov_models, **settings["signal_model"])
     return model
 
 
