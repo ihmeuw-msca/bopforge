@@ -83,7 +83,6 @@ def fit_signal_model(result_folder: Path) -> None:
         summary,
         df,
         df_coef,
-        signal_model,
         show_ref=all_settings["figure"]["show_ref"],
     )
 
@@ -110,16 +109,14 @@ def select_bias_covs(result_folder: Path) -> None:
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
-    df = df[df.is_outlier == 0].copy()
+    # df = df[df.is_outlier == 0].copy()
 
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]
 
     cov_finder_linear_model = dataif.load_result("signal_model.pkl")
-    # cov_finder_linear_model = functions.get_cov_finder_linear_model(df)
-    # cov_finder_linear_model.fit_model()
 
-    cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model)
+    cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model, df)
     cov_finder.select_covs(verbose=True)
 
     cov_finder_result = functions.get_cov_finder_result(
@@ -154,42 +151,41 @@ def fit_linear_model(result_folder: Path) -> None:
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["complete_summary"]
     summary = dataif.load_result("summary.yaml")
-    signal_model = dataif.load_result("signal_model.pkl")
 
     linear_model = functions.get_linear_model(
         df_train, all_settings, cov_finder_result
     )
     linear_model.fit_model()
 
-    df_coef = functions.get_coefs(df, all_settings, signal_model)
+    df_coef = functions.get_coefs(
+        df, all_settings, linear_model, summary["ref_cat"]
+    )
 
     summary = functions.get_linear_model_summary(
-        settings, summary, df, df_coef, linear_model
+        settings, summary, df, linear_model
     )
 
-    df_inner_draws, df_outer_draws = functions.get_draws(
-        settings, summary, df_coef
-    )
-    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-        settings, summary, df_coef
-    )
+    # df_inner_draws, df_outer_draws = functions.get_draws(
+    #     settings, summary, df_coef
+    # )
+    # df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
+    #     settings, summary, df_coef
+    # )
 
     fig = functions.plot_linear_model(
         name,
         summary,
         df,
         df_coef,
-        signal_model,
-        linear_model,
         show_ref=all_settings["figure"]["show_ref"],
     )
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")
-    dataif.dump_result(df_inner_draws, "inner_draws.csv")
-    dataif.dump_result(df_outer_draws, "outer_draws.csv")
-    dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
-    dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
+    # dataif.dump_result(df_inner_draws, "inner_draws.csv")
+    # dataif.dump_result(df_outer_draws, "outer_draws.csv")
+    # dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
+    # dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
