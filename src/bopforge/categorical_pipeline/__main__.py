@@ -165,12 +165,10 @@ def fit_linear_model(result_folder: Path) -> None:
         settings, summary, df, linear_model
     )
 
-    # df_inner_draws, df_outer_draws = functions.get_draws(
-    #     settings, summary, df_coef
-    # )
-    # df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
-    #     settings, summary, df_coef
-    # )
+    df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
+    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
+        settings, summary
+    )
 
     fig = functions.plot_linear_model(
         name,
@@ -182,10 +180,10 @@ def fit_linear_model(result_folder: Path) -> None:
 
     dataif.dump_result(linear_model, "linear_model.pkl")
     dataif.dump_result(summary, "summary.yaml")
-    # dataif.dump_result(df_inner_draws, "inner_draws.csv")
-    # dataif.dump_result(df_outer_draws, "outer_draws.csv")
-    # dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
-    # dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
+    dataif.dump_result(df_inner_draws, "inner_draws.csv")
+    dataif.dump_result(df_outer_draws, "outer_draws.csv")
+    dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
+    dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 

@@ -124,25 +124,6 @@ def get_signal_model_summary(
     return summary
 
 
-# def get_cov_finder_linear_model(df: DataFrame) -> MRBRT:
-#     col_covs = ["signal"] + [col for col in df.columns if col.startswith("em_")]
-#     data = MRData()
-#     data.load_df(
-#         df,
-#         col_obs="ln_rr",
-#         col_obs_se="ln_rr_se",
-#         col_covs=col_covs,
-#         col_study_id="study_id",
-#         col_data_id="seq",
-#     )
-#     cov_models = [
-#         LinearCovModel("signal", use_re=True),
-#     ]
-#     cov_finder_linear_model = MRBRT(data, cov_models)
-
-#     return cov_finder_linear_model
-
-
 def get_cov_finder(
     settings: dict, cov_finder_linear_model: MRBRT, df: DataFrame
 ) -> CovFinder:
@@ -164,33 +145,33 @@ def get_cov_finder(
         The instance of the CovFinder class.
 
     """
-    ###################
     data_signal = cov_finder_linear_model.data
     cats = cov_finder_linear_model.cov_models[0].cats
     ref_cat = cov_finder_linear_model.cov_models[0].ref_cat
     alt_cats = [cat for cat in cats if cat != ref_cat]
 
-    alt_mat, ref_mat = cov_finder_linear_model.cov_models[0].create_design_mat(
-        data_signal
-    )
-    design_mat = alt_mat - ref_mat
+    # Create design matrix
+    for cat in cats:
+        df[cat] = 0
+    for i, row in df.iterrows():
+        df.at[i, row["ref_risk_cat"]] = -1  # Assign -1 for ref_risk_cat
+        df.at[i, row["alt_risk_cat"]] = 1  # Assign 1 for alt_risk_cat
+
     df = pd.concat(
         [
             df,
-            pd.DataFrame(design_mat, columns=[col for col in cats]),
             pd.DataFrame(data_signal.covs["intercept"], columns=["intercept"]),
         ],
         axis=1,
     )
     df = df[df.is_outlier == 0].copy()
     col_covs = [col for col in df.columns if col.startswith("cov_")]
-    col_alt_cats = [col for col in df.columns if col in alt_cats]
     data = MRData()
     data.load_df(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=col_covs + col_alt_cats + ["ref_risk_cat", "alt_risk_cat"],
+        col_covs=col_covs + alt_cats + ["ref_risk_cat", "alt_risk_cat"],
         col_study_id="study_id",
         col_data_id="seq",
     )
@@ -198,9 +179,6 @@ def get_cov_finder(
     beta_info = get_beta_info(cov_finder_linear_model, cov_name=None)
     index = list(cats).index(ref_cat)
     beta_info = tuple(np.delete(arr, index) for arr in beta_info)
-
-    ###################
-    # bias_covs = [name for name in data.covs.keys() if name.startswith("cov_")]
 
     # covariate selection
     pre_selected_covs = settings["cov_finder"]["pre_selected_covs"]
@@ -213,7 +191,6 @@ def get_cov_finder(
     candidate_covs = [
         cov_name
         for cov_name in data.covs.keys()
-        # for cov_name in bias_covs
         if cov_name not in pre_selected_covs + ["ref_risk_cat", "alt_risk_cat"]
     ]
     settings["cov_finder"] = {
@@ -230,7 +207,7 @@ def get_cov_finder(
     cov_finder = CovFinder(
         data,
         covs=candidate_covs,
-        # beta_gprior_std=0.1 * beta_info[1],
+        beta_gprior_std=0.1 * np.mean(beta_info[1]),
         **settings["cov_finder"],
     )
 
@@ -269,12 +246,11 @@ def get_cov_finder_result(
         cov_name
         for cov_name in cov_finder.selected_covs
         if cov_name not in excluded_covs
-        # if cov_name != "intercept"
     ]
 
     # save results
     cov_finder_result = {
-        "beta_sd": (beta_info[1] * 0.1).tolist(),
+        "beta_sd": float(np.mean(beta_info[1]) * 0.1),
         "selected_covs": selected_covs,
     }
 
@@ -458,6 +434,7 @@ def get_linear_model(
         cov_models.append(
             LinearCovModel(
                 cov_name,
+                prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
             )
         )
     model = MRBRT(data, cov_models)
@@ -530,9 +507,17 @@ def get_linear_model_summary(
     signed_bprf = sign * burden_of_proof
     # Number of alternative categories
     n = len(alt_cats)
+    # Assign dichotomous score for each alternative category
+    score_by_category = np.zeros(n)
+    product = np.prod(inner_ui, axis=0)
+    score_by_category[product < 0] = float("nan")
+    score_by_category[product >= 0] = 0.5 * signed_bprf[product >= 0]
+    summary["score_by_category"] = dict(
+        zip(alt_cats, score_by_category.tolist())
+    )
     # Index with largest signed coefficient
     max_idx = np.argmax(signed_bprf)
-    if np.any(np.prod(inner_ui[:,], axis=0) < 0):
+    if np.any(product < 0):
         summary["score"] = float("nan")
         summary["star_rating"] = 0
     else:
@@ -540,9 +525,6 @@ def get_linear_model_summary(
             (1 / n) * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
         )
         summary["score"] = score
-        summary["score_by_category"] = dict(
-            zip(alt_cats, (0.5 * signed_bprf).tolist())
-        )
         # Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
@@ -560,9 +542,9 @@ def get_linear_model_summary(
     # compute the publication bias
     index = df.is_outlier == 0
     beta_dict = dict(zip(cats, beta_info[0]))
-    residual = (
-        df["ln_rr"].values[index]
-        - df["alt_risk_cat"].map(beta_dict).values[index]
+    residual = df["ln_rr"].values[index] - (
+        df["alt_risk_cat"].map(beta_dict).values[index]
+        - df["ref_risk_cat"].map(beta_dict).values[index]
     )
     residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
     weighted_residual = residual / residual_sd
@@ -575,127 +557,137 @@ def get_linear_model_summary(
     return summary
 
 
-# def get_draws(
-#     settings: dict,
-#     summary: dict,
-#     df_coef: DataFrame,
-# ) -> tuple[DataFrame, DataFrame]:
-#     """Create effect draws for the pipeline.
+def get_draws(
+    settings: dict,
+    summary: dict,
+) -> tuple[DataFrame, DataFrame]:
+    """Create effect draws for the pipeline.
 
-#     Parameters
-#     ----------
-#     settings
-#         Settings for complete the summary.
-#     summary
-#         Summary of the models.
-#     df_coef
-#         Data frame containing fitted beta coefficients
+    Parameters
+    ----------
+    settings
+        Settings for complete the summary.
+    summary
+        Summary of the models.
 
-#     Returns
-#     -------
-#     tuple[DataFrame, DataFrame]
-#         Inner and outer draw files.
+    Returns
+    -------
+    tuple[DataFrame, DataFrame]
+        Inner and outer draw files.
 
-#     """
+    """
 
-#     beta_info = summary["beta"]
-#     gamma_info = summary["gamma"]
-#     inner_beta_sd = beta_info[1]
-#     outer_beta_sd = np.sqrt(
-#         beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
-#     )
-#     inner_beta_samples = np.random.normal(
-#         loc=beta_info[0],
-#         scale=inner_beta_sd,
-#         size=settings["draws"]["num_draws"],
-#     )
-#     outer_beta_samples = np.random.normal(
-#         loc=beta_info[0],
-#         scale=outer_beta_sd,
-#         size=settings["draws"]["num_draws"],
-#     )
-#     inner_draws = np.outer(df_coef.coef, inner_beta_samples)
-#     outer_draws = np.outer(df_coef.coef, outer_beta_samples)
-#     df_inner_draws = pd.DataFrame(
-#         np.hstack([df_coef["cat"].to_numpy().reshape(-1, 1), inner_draws]),
-#         columns=["risk_cat"]
-#         + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-#     )
-#     df_outer_draws = pd.DataFrame(
-#         np.hstack([df_coef["cat"].to_numpy().reshape(-1, 1), outer_draws]),
-#         columns=["risk_cat"]
-#         + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-#     )
+    beta_info = summary["beta"]
+    beta_sd_info = summary["beta_sd"]
+    gamma_info = summary["gamma"]
+    inner_beta_sd = np.array(list(beta_sd_info.values()))
+    outer_beta_sd = np.sqrt(
+        np.array(list(beta_sd_info.values())) ** 2
+        + gamma_info[0]
+        + 2 * gamma_info[1]
+    )
+    inner_beta_samples = np.random.normal(
+        loc=np.array(list(beta_info.values()))[:, None],
+        scale=inner_beta_sd[:, None],
+        size=(len(beta_info), settings["draws"]["num_draws"]),
+    )
+    outer_beta_samples = np.random.normal(
+        loc=np.array(list(beta_info.values()))[:, None],
+        scale=outer_beta_sd[:, None],
+        size=(len(beta_info), settings["draws"]["num_draws"]),
+    )
+    df_inner_draws = pd.DataFrame(
+        np.hstack(
+            [np.array(list(beta_info.keys()))[:, None], inner_beta_samples]
+        ),
+        columns=["risk_cat"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    )
+    df_outer_draws = pd.DataFrame(
+        np.hstack(
+            [np.array(list(beta_info.keys()))[:, None], outer_beta_samples]
+        ),
+        columns=["risk_cat"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    )
 
-#     return df_inner_draws, df_outer_draws
+    return df_inner_draws, df_outer_draws
 
 
-# def get_quantiles(
-#     settings: dict,
-#     summary: dict,
-#     df_coef: DataFrame,
-# ) -> tuple[DataFrame, DataFrame]:
-#     """Create effect quantiles for the pipeline.
+def get_quantiles(
+    settings: dict,
+    summary: dict,
+) -> tuple[DataFrame, DataFrame]:
+    """Create effect quantiles for the pipeline.
 
-#     Parameters
-#     ----------
-#     settings
-#         The settings for complete the summary.
-#     summary
-#         The completed summary file.
-#     df_coef
-#         Data frame containing fitted beta coefficients
+    Parameters
+    ----------
+    settings
+        The settings for complete the summary.
+    summary
+        The completed summary file.
 
-#     Returns
-#     -------
-#     tuple[DataFrame, DataFrame]
-#         Inner and outer quantile files.
+    Returns
+    -------
+    tuple[DataFrame, DataFrame]
+        Inner and outer quantile files.
 
-#     """
+    """
 
-#     beta_info = summary["beta"]
-#     gamma_info = summary["gamma"]
-#     inner_beta_sd = beta_info[1]
-#     outer_beta_sd = np.sqrt(
-#         beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
-#     )
-#     # get quantiles
-#     cats = df_coef["cat"].to_numpy().reshape(-1, 1)
-#     coefs = df_coef["coef"].to_numpy()
-#     quantiles = np.asarray(settings["draws"]["quantiles"])
-#     signal_sign_index = np.zeros(coefs.size, dtype=int)
-#     signal_sign_index[coefs < 0] = 1
-#     inner_beta_quantiles = [
-#         norm.ppf(quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
-#         norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
-#     ]
-#     inner_beta_quantiles = np.vstack(inner_beta_quantiles).T
-#     outer_beta_quantiles = [
-#         norm.ppf(quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
-#         norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
-#     ]
-#     outer_beta_quantiles = np.vstack(outer_beta_quantiles).T
-#     inner_quantiles = [
-#         inner_beta_quantiles[i][signal_sign_index] * coefs
-#         for i in range(len(quantiles))
-#     ]
-#     inner_quantiles = np.vstack(inner_quantiles).T
-#     outer_quantiles = [
-#         outer_beta_quantiles[i][signal_sign_index] * coefs
-#         for i in range(len(quantiles))
-#     ]
-#     outer_quantiles = np.vstack(outer_quantiles).T
+    beta_info = summary["beta"]
+    beta_sd_info = summary["beta_sd"]
+    gamma_info = summary["gamma"]
+    inner_beta_sd = np.array(list(beta_sd_info.values()))
+    outer_beta_sd = np.sqrt(
+        np.array(list(beta_sd_info.values())) ** 2
+        + gamma_info[0]
+        + 2 * gamma_info[1]
+    )
+    # get quantiles
+    cats = np.array(list(beta_info.keys()))[:, None]
+    coefs = np.array(list(beta_info.values()))
+    quantiles = np.asarray(settings["draws"]["quantiles"])
+    inner_beta_quantiles = [
+        norm.ppf(quantiles, loc=coefs[:, None], scale=inner_beta_sd[:, None]),
+    ]
+    inner_beta_quantiles = np.vstack(inner_beta_quantiles)
+    outer_beta_quantiles = [
+        norm.ppf(quantiles, loc=coefs[:, None], scale=outer_beta_sd[:, None]),
+    ]
+    outer_beta_quantiles = np.vstack(outer_beta_quantiles)
+    df_inner_quantiles = pd.DataFrame(
+        np.hstack([cats, inner_beta_quantiles]),
+        columns=["risk_cat"] + list(map(str, quantiles)),
+    )
+    df_outer_quantiles = pd.DataFrame(
+        np.hstack([cats, outer_beta_quantiles]),
+        columns=["risk_cat"] + list(map(str, quantiles)),
+    )
 
-#     df_inner_quantiles = pd.DataFrame(
-#         np.hstack([cats, inner_quantiles]),
-#         columns=["risk_cat"] + list(map(str, quantiles)),
-#     )
-#     df_outer_quantiles = pd.DataFrame(
-#         np.hstack([cats, outer_quantiles]),
-#         columns=["risk_cat"] + list(map(str, quantiles)),
-#     )
+    # signal_sign_index = np.zeros(coefs.size, dtype=int)
+    # signal_sign_index[coefs < 0] = 1
+    # inner_beta_quantiles = [
+    #     norm.ppf(quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
+    #     norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
+    # ]
+    # inner_beta_quantiles = np.vstack(inner_beta_quantiles).T
+    # outer_beta_quantiles = [
+    #     norm.ppf(quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
+    #     norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
+    # ]
+    # outer_beta_quantiles = np.vstack(outer_beta_quantiles).T
+    # inner_quantiles = [
+    #     inner_beta_quantiles[i][signal_sign_index] * coefs
+    #     for i in range(len(quantiles))
+    # ]
+    # inner_quantiles = np.vstack(inner_quantiles).T
+    # outer_quantiles = [
+    #     outer_beta_quantiles[i][signal_sign_index] * coefs
+    #     for i in range(len(quantiles))
+    # ]
+    # outer_quantiles = np.vstack(outer_quantiles).T
 
-#     return df_inner_quantiles, df_outer_quantiles
+    return df_inner_quantiles, df_outer_quantiles
 
 
 def plot_linear_model(
@@ -740,7 +732,6 @@ def plot_linear_model(
         show_ref=show_ref,
     )
     # plot beta coefficients and uncertainty
-    # beta = summary["beta"]
     gamma = summary["gamma"]
     inner_beta_sd = summary["beta_sd"]
     df_coef["inner_beta_sd"] = df_coef["cat"].map(inner_beta_sd).values
@@ -940,8 +931,9 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
 
     # add residual information
     beta, gamma = summary["beta"], summary["gamma"]
-    residual = df.ln_rr.values - df.alt_risk_cat.map(beta).values
-    # residual = df.ln_rr.values - df.signal.values * beta[0]
+    residual = df.ln_rr.values - (
+        df.alt_risk_cat.map(beta).values - df.ref_risk_cat.map(beta).values
+    )
     residual_sd = np.sqrt(df.ln_rr_se.values**2 + gamma[0])
 
     index = df.is_outlier == 1
