@@ -71,7 +71,6 @@ def fit_signal_model(result_folder: Path) -> None:
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
     df = functions.add_cols(df, signal_model)
-    # df = functions.convert_bc_to_em(df, signal_model)
     df_coef = functions.get_coefs(df, all_settings, signal_model)
 
     summary = functions.get_signal_model_summary(
@@ -109,7 +108,6 @@ def select_bias_covs(result_folder: Path) -> None:
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
-    # df = df[df.is_outlier == 0].copy()
 
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]

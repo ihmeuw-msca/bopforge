@@ -95,7 +95,7 @@ def get_signal_model_summary(
     df
         Data frame that contains the training dataset.
     df_coef
-        Data frame containing beta coefficients
+        Data frame containing beta coefficients from signal model
 
     Returns
     -------
@@ -457,10 +457,6 @@ def get_linear_model_summary(
         Summary from the signal model.
     df
         Data frame contains the all dataset.
-    df_coef
-        Data frame containing beta coefficients
-    signal_model
-        Fitted signal model for risk curve.
     linear_model
         Fitted linear model for risk curve.
 
@@ -664,29 +660,6 @@ def get_quantiles(
         columns=["risk_cat"] + list(map(str, quantiles)),
     )
 
-    # signal_sign_index = np.zeros(coefs.size, dtype=int)
-    # signal_sign_index[coefs < 0] = 1
-    # inner_beta_quantiles = [
-    #     norm.ppf(quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
-    #     norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=inner_beta_sd),
-    # ]
-    # inner_beta_quantiles = np.vstack(inner_beta_quantiles).T
-    # outer_beta_quantiles = [
-    #     norm.ppf(quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
-    #     norm.ppf(1 - quantiles, loc=summary["beta"][0], scale=outer_beta_sd),
-    # ]
-    # outer_beta_quantiles = np.vstack(outer_beta_quantiles).T
-    # inner_quantiles = [
-    #     inner_beta_quantiles[i][signal_sign_index] * coefs
-    #     for i in range(len(quantiles))
-    # ]
-    # inner_quantiles = np.vstack(inner_quantiles).T
-    # outer_quantiles = [
-    #     outer_beta_quantiles[i][signal_sign_index] * coefs
-    #     for i in range(len(quantiles))
-    # ]
-    # outer_quantiles = np.vstack(outer_quantiles).T
-
     return df_inner_quantiles, df_outer_quantiles
 
 
@@ -829,8 +802,8 @@ def _plot_data(
     """
     np.random.seed(0)
 
-    # Merge coefficient for each category into dataframe: beta coefficient for reference category
-    # Then add x midpoint corresponding to reference and alternative categories
+    # Merge reference coefficient for each category into dataframe
+    # Then add midpoints corresponding to reference and alternative categories
     df = (
         df.merge(
             df_coef[["cat", "coef"]].rename(columns={"cat": "ref_risk_cat"}),
