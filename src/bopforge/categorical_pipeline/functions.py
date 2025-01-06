@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -152,10 +152,10 @@ def get_cov_finder(
 
     # Create design matrix
     for cat in cats:
-        df[cat] = 0
+        df[cat] = 0.0
     for i, row in df.iterrows():
-        df.at[i, row["ref_risk_cat"]] = -1  # Assign -1 for ref_risk_cat
-        df.at[i, row["alt_risk_cat"]] = 1  # Assign 1 for alt_risk_cat
+        df.at[i, row["ref_risk_cat"]] = -1.0  # Assign -1 for ref_risk_cat
+        df.at[i, row["alt_risk_cat"]] = 1.0  # Assign 1 for alt_risk_cat
 
     df = pd.concat(
         [
@@ -285,7 +285,7 @@ def get_coefs(
     """
     # extract categories, betas
     df_coef = pd.DataFrame(
-        dict(cat=model.cov_models[0].cats, coef=model.beta_soln)
+        dict(cat=model.cov_models[0].cats, coef=model.fe_soln["alt_risk_cat"])
     )
     if ref_cat_input is not None:
         ref_cat = ref_cat_input
@@ -325,6 +325,61 @@ def get_coefs(
     df_coef["x_mid"] = df_coef.eval("0.5 * (x_start + x_end)")
 
     return df_coef
+
+
+def get_beta_cats(
+    model: MRBRT,
+) -> Tuple[DataFrame]:
+    """Get beta coefficients and their standard deviations for the categories.
+
+    Parameters
+    ----------
+    model
+        Fitted linear model for the categorical model.
+
+    Returns
+    -------
+    tuple[DataFrame]
+        Dataframe of beta coefficients and their standard deviations for each category
+
+    """
+
+    lt = model.lt
+
+    cov_names = []
+    for cov_model in model.cov_models:
+        if isinstance(cov_model, LinearCovModel):
+            cov_name = cov_model.alt_cov[0]
+            if cov_model.num_x_vars == 1:
+                cov_names.append(cov_name)
+            else:
+                cov_names.extend(
+                    [f"{cov_name}_{i}" for i in range(cov_model.num_x_vars)]
+                )
+        elif isinstance(cov_model, LinearCatCovModel):
+            cov_names.extend("cat_" + cov_model.cats.astype(str))
+            # cov_names.extend(cov_model.cats)
+        else:
+            raise TypeError("Unknown cov_model type")
+
+    beta = model.beta_soln
+    hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
+    beta_sd = 1.0 / np.sqrt(np.diag(hessian))
+
+    beta_info = pd.DataFrame(
+        {
+            "cov_name": cov_names,
+            "beta": beta,
+            "beta_sd": beta_sd,
+        }
+    )
+
+    beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
+    beta_cats["cov_name_standard"] = beta_cats["cov_name"].str.removeprefix(
+        "cat_"
+    )
+
+    return beta_cats
 
 
 def plot_signal_model(
@@ -470,29 +525,55 @@ def get_linear_model_summary(
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
     ref_cat = summary["ref_cat"]
     cats = linear_model.cov_models[0].cats
-    index = list(cats).index(ref_cat)
     alt_cats = [cat for cat in cats if cat != ref_cat]
 
     # solution of the final model
-    beta_info = get_beta_info(linear_model, cov_name=None)
+    beta_info = get_beta_cats(linear_model)
     gamma_info = get_gamma_info(linear_model)
-    summary["beta"] = dict(zip(cats, beta_info[0].tolist()))
-    summary["beta_sd"] = dict(zip(cats, beta_info[1].tolist()))
+    summary["beta"] = dict(
+        zip(beta_info["cov_name_standard"], beta_info["beta"])
+    )
+    summary["beta_sd"] = dict(
+        zip(beta_info["cov_name_standard"], beta_info["beta_sd"])
+    )
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
+    # ncats = len(cats)
+    # beta_info = get_beta_info(linear_model, cov_name=None)
+    # beta_info = tuple(array[:ncats] for array in beta_info)
+    # gamma_info = get_gamma_info(linear_model)
+    # summary["beta"] = dict(zip(cats, beta_info[0].tolist()))
+    # summary["beta_sd"] = dict(zip(cats, beta_info[1].tolist()))
+    # summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
     # compute the score and add star rating
     # Subset to only alternative categories
-    beta_alt_cats = tuple(np.delete(arr, index) for arr in beta_info)
-    beta_sd = np.sqrt(beta_alt_cats[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
-    pred = beta_alt_cats[0]
+    ref_cat_full = "cat_" + ref_cat
+    beta_alt_cats = beta_info[beta_info["cov_name"] != ref_cat_full]
+    beta_sd = np.sqrt(
+        beta_alt_cats["beta_sd"] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    )
+    pred = np.array(beta_alt_cats["beta"])
     inner_ui = np.vstack(
         [
-            beta_alt_cats[0] - 1.96 * beta_alt_cats[1],
-            beta_alt_cats[0] + 1.96 * beta_alt_cats[1],
+            beta_alt_cats["beta"] - 1.96 * beta_alt_cats["beta_sd"],
+            beta_alt_cats["beta"] + 1.96 * beta_alt_cats["beta_sd"],
         ]
     )
     sign = np.sign(pred)
-    burden_of_proof = beta_alt_cats[0] - sign * 1.645 * beta_sd
+    burden_of_proof = beta_alt_cats["beta"] - sign * 1.645 * beta_sd
+
+    # index = list(cats).index(ref_cat)
+    # beta_alt_cats = tuple(np.delete(arr, index) for arr in beta_info)
+    # beta_sd = np.sqrt(beta_alt_cats[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
+    # pred = beta_alt_cats[0]
+    # inner_ui = np.vstack(
+    #     [
+    #         beta_alt_cats[0] - 1.96 * beta_alt_cats[1],
+    #         beta_alt_cats[0] + 1.96 * beta_alt_cats[1],
+    #     ]
+    # )
+    # sign = np.sign(pred)
+    # burden_of_proof = beta_alt_cats[0] - sign * 1.645 * beta_sd
 
     if settings["score"]["normalize_to_tmrel"]:
         index = np.argmin(pred)
@@ -537,7 +618,8 @@ def get_linear_model_summary(
 
     # compute the publication bias
     index = df.is_outlier == 0
-    beta_dict = dict(zip(cats, beta_info[0]))
+    beta_dict = dict(zip(beta_info["cov_name_standard"], beta_info["beta"]))
+    # beta_dict = dict(zip(cats, beta_info[0]))
     residual = df["ln_rr"].values[index] - (
         df["alt_risk_cat"].map(beta_dict).values[index]
         - df["ref_risk_cat"].map(beta_dict).values[index]
