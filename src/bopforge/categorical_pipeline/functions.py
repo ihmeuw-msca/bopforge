@@ -538,13 +538,6 @@ def get_linear_model_summary(
         zip(beta_info["cov_name_standard"], beta_info["beta_sd"])
     )
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
-    # ncats = len(cats)
-    # beta_info = get_beta_info(linear_model, cov_name=None)
-    # beta_info = tuple(array[:ncats] for array in beta_info)
-    # gamma_info = get_gamma_info(linear_model)
-    # summary["beta"] = dict(zip(cats, beta_info[0].tolist()))
-    # summary["beta_sd"] = dict(zip(cats, beta_info[1].tolist()))
-    # summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
     # compute the score and add star rating
     # Subset to only alternative categories
@@ -594,7 +587,7 @@ def get_linear_model_summary(
         zip(alt_cats, score_by_category.tolist())
     )
     # Index with largest signed coefficient
-    max_idx = np.argmax(signed_bprf)
+    max_idx = signed_bprf.idxmax()
     if np.any(product < 0):
         summary["score"] = float("nan")
         summary["star_rating"] = 0
