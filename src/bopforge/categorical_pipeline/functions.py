@@ -307,6 +307,7 @@ def get_coefs(
             df_coef["cat"], categories=cat_order, ordered=True
         )
         df_coef = df_coef.sort_values("cat").reset_index(drop=True)
+        df_coef["cat"] = df_coef["cat"].astype(str)
     else:
         # Default behavior: ref_cat first, then order by proximity to ref_cat's coef
         ref_coef = df_coef.loc[df_coef["cat"] == ref_cat, "coef"].iloc[0]
