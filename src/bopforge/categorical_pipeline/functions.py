@@ -755,7 +755,7 @@ def get_linear_model_summary(
         df["ln_rr_se"].values[index] ** 2
         + (
             df["alt_risk_cat"].map(gamma_dict).values[index]
-            - df["ref_risk_cat"].map(gamma_dict).values[index]
+            + df["ref_risk_cat"].map(gamma_dict).values[index]
         )
     )
     # residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
@@ -1145,7 +1145,7 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
         df.ln_rr_se.values**2
         + (
             df.alt_risk_cat.map(gamma).values
-            - df.ref_risk_cat.map(gamma).values
+            + df.ref_risk_cat.map(gamma).values
         )
     )
     # residual_sd = np.sqrt(df.ln_rr_se.values**2 + gamma[0])
