@@ -82,7 +82,11 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
 
 
 def get_signal_model_summary(
-    name: str, all_settings: dict, df: DataFrame, df_coef: DataFrame
+    name: str,
+    all_settings: dict,
+    summary: dict,
+    df: DataFrame,
+    cat_coefs: DataFrame,
 ) -> dict:
     """Create signal model summary.
 
@@ -92,9 +96,11 @@ def get_signal_model_summary(
         Name of the pair.
     all_settings
         All the settings for the pipeline.
+    summary
+        Summary file initialized in pre-processing
     df
         Data frame that contains the training dataset.
-    df_coef
+    cat_coefs
         Data frame containing beta coefficients from signal model
 
     Returns
@@ -103,21 +109,7 @@ def get_signal_model_summary(
         Summary dictionary from the signal model.
 
     """
-    ref_cat = all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
-    if ref_cat:
-        ref_cat = ref_cat
-    else:
-        unique_cats, counts = np.unique(
-            np.hstack([df.ref_risk_cat, df.alt_risk_cat]), return_counts=True
-        )
-        ref_cat = unique_cats[counts.argmax()]
-
-    summary = {
-        "name": name,
-        "risk_type": str(df.risk_type.values[0]),
-        "beta_coef_signal": dict(zip(df_coef.cat, df_coef.coef)),
-        "ref_cat": ref_cat,
-    }
+    summary["beta_coef_signal"] = dict(zip(cat_coefs.cat, cat_coefs.beta))
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
     ]
@@ -257,13 +249,13 @@ def get_cov_finder_result(
     return cov_finder_result
 
 
-def get_coefs(
-    df: DataFrame,
+def get_cat_coefs(
     settings: dict,
     model: MRBRT,
-    ref_cat_input: Optional[str] = None,
+    type: str,
+    ref_cat_input: str,
 ) -> tuple[DataFrame]:
-    """Get beta coefficients for the categories.
+    """Get beta and gamma coefficients for the categories.
 
     Parameters
     ----------
@@ -272,7 +264,9 @@ def get_coefs(
     settings
         The settings for category order
     model
-        Fitted model for the categories, either signal or linear model.
+        Fitted model for the categories, linear or signal
+    type
+        String specifying whether model is signal or linear model
     ref_cat_input
         Reference category. Optional, will be inferred from settings or data
         if not provided.
@@ -280,73 +274,13 @@ def get_coefs(
     Returns
     -------
     tuple[DataFrame]
-        Dataframe of beta coefficients and ranges to plot each category
-
-    """
-    # extract categories, betas
-    df_coef = pd.DataFrame(
-        dict(cat=model.cov_models[0].cats, coef=model.fe_soln["alt_risk_cat"])
-    )
-    if ref_cat_input is not None:
-        ref_cat = ref_cat_input
-    else:
-        # Assign reference category from settings or by most common category
-        ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
-        if ref_cat:
-            ref_cat = ref_cat
-        else:
-            unique_cats, counts = np.unique(
-                np.hstack([df.ref_risk_cat, df.alt_risk_cat]),
-                return_counts=True,
-            )
-            ref_cat = unique_cats[counts.argmax()]
-    # Order the categories
-    cat_order = settings["figure"]["cat_order"]
-    if cat_order:
-        df_coef["cat"] = pd.Categorical(
-            df_coef["cat"], categories=cat_order, ordered=True
-        )
-        df_coef = df_coef.sort_values("cat").reset_index(drop=True)
-        df_coef["cat"] = df_coef["cat"].astype(str)
-    else:
-        # Default behavior: ref_cat first, then order by proximity to ref_cat's coef
-        ref_coef = df_coef.loc[df_coef["cat"] == ref_cat, "coef"].iloc[0]
-        df_coef["abs_diff"] = abs(df_coef["coef"] - ref_coef)
-        df_coef = df_coef.sort_values(by="abs_diff")
-        df_coef = pd.concat(
-            [
-                df_coef[df_coef["cat"] == ref_cat],
-                df_coef[df_coef["cat"] != ref_cat],
-            ]
-        ).reset_index(drop=True)
-    # Add x ranges
-    num_cats = df_coef["cat"].nunique()
-    df_coef["x_start"] = range(num_cats)
-    df_coef["x_end"] = range(1, num_cats + 1)
-    df_coef["x_mid"] = df_coef.eval("0.5 * (x_start + x_end)")
-
-    return df_coef
-
-
-def get_beta_cats(
-    model: MRBRT,
-) -> Tuple[DataFrame]:
-    """Get beta coefficients and their standard deviations for the categories.
-
-    Parameters
-    ----------
-    model
-        Fitted linear model for the categorical model.
-
-    Returns
-    -------
-    tuple[DataFrame]
-        Dataframe of beta coefficients and their standard deviations for each category
+        Dataframe of beta, beta_sd, gamma, gamma_sd for each category and ranges to plot each category
 
     """
 
     lt = model.lt
 
+    # Extract betas for categories and covariates, ensuring correct matching
     cov_names = []
     for cov_model in model.cov_models:
         if isinstance(cov_model, LinearCovModel):
@@ -359,7 +293,6 @@ def get_beta_cats(
                 )
         elif isinstance(cov_model, LinearCatCovModel):
             cov_names.extend("cat_" + cov_model.cats.astype(str))
-            # cov_names.extend(cov_model.cats)
         else:
             raise TypeError("Unknown cov_model type")
 
@@ -374,20 +307,194 @@ def get_beta_cats(
             "beta_sd": beta_sd,
         }
     )
-
+    # Subset to betas for categories only
     beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
-    beta_cats["cov_name_standard"] = beta_cats["cov_name"].str.removeprefix(
-        "cat_"
-    )
+    beta_cats["cat"] = beta_cats["cov_name"].str.removeprefix("cat_")
 
-    return beta_cats
+    # Extract gamma, calculate gamma_sd, and merge with beta dataframe for linear model only
+    if type == "linear":
+        lt = model.lt
+        gamma = model.gamma_soln
+        gamma_fisher = lt.get_gamma_fisher(gamma)
+        # gamma_sd = 1.0 / np.sqrt(np.diag(gamma_fisher))
+        gamma_cov = np.linalg.inv(gamma_fisher)
+        gamma_sd = np.sqrt(np.diag(gamma_cov))
+        gamma_cats = pd.DataFrame(
+            {
+                "cat": model.cov_models[
+                    model.cov_model_names == "alt_risk_cat"
+                ].cats,
+                "gamma": gamma,
+                "gamma_sd": gamma_sd,
+            }
+        )
+        cat_coefs = beta_cats.merge(gamma_cats, on="cat", how="left")
+    else:
+        cat_coefs = beta_cats
+
+    # Order the categories
+    cat_order = settings["figure"]["cat_order"]
+    if cat_order:
+        cat_coefs["cat"] = pd.Categorical(
+            cat_coefs["cat"], categories=cat_order, ordered=True
+        )
+        cat_coefs = cat_coefs.sort_values("cat").reset_index(drop=True)
+        cat_coefs["cat"] = cat_coefs["cat"].astype(str)
+    else:
+        # ref_cat first, then order by proximity to ref_cat's beta coefficient
+        ref_beta = cat_coefs.loc[
+            cat_coefs["cat"] == ref_cat_input, "beta"
+        ].iloc[0]
+        cat_coefs["abs_diff"] = (cat_coefs["beta"] - ref_beta).abs()
+        cat_coefs = cat_coefs.sort_values(by="abs_diff")
+        cat_coefs = pd.concat(
+            [
+                cat_coefs[cat_coefs["cat"] == ref_cat_input],
+                cat_coefs[cat_coefs["cat"] != ref_cat_input],
+            ]
+        ).reset_index(drop=True)
+        # cat_coefs = cat_coefs.sort_values(by=["cat" == ref_cat_input, "abs_diff"], ascending=[False, True])
+        cat_coefs = cat_coefs.drop(columns=["abs_diff"])
+    # Add x ranges for plotting
+    num_cats = cat_coefs["cat"].nunique()
+    cat_coefs["x_start"] = range(num_cats)
+    cat_coefs["x_end"] = range(1, num_cats + 1)
+    cat_coefs["x_mid"] = cat_coefs.eval("0.5 * (x_start + x_end)")
+
+    return cat_coefs
+
+
+# def get_coefs(
+#     df: DataFrame,
+#     settings: dict,
+#     model: MRBRT,
+#     ref_cat_input: Optional[str] = None,
+# ) -> tuple[DataFrame]:
+#     """Get beta coefficients for the categories.
+
+#     Parameters
+#     ----------
+#     df
+#         Data frame contains the training data.
+#     settings
+#         The settings for category order
+#     model
+#         Fitted model for the categories, either signal or linear model.
+#     ref_cat_input
+#         Reference category. Optional, will be inferred from settings or data
+#         if not provided.
+
+#     Returns
+#     -------
+#     tuple[DataFrame]
+#         Dataframe of beta coefficients and ranges to plot each category
+
+#     """
+#     # extract categories, betas
+#     df_coef = pd.DataFrame(
+#         dict(cat=model.cov_models[0].cats, coef=model.fe_soln["alt_risk_cat"])
+#     )
+#     if ref_cat_input is not None:
+#         ref_cat = ref_cat_input
+#     else:
+#         # Assign reference category from settings or by most common category
+#         ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
+#         if ref_cat:
+#             ref_cat = ref_cat
+#         else:
+#             unique_cats, counts = np.unique(
+#                 np.hstack([df.ref_risk_cat, df.alt_risk_cat]),
+#                 return_counts=True,
+#             )
+#             ref_cat = unique_cats[counts.argmax()]
+#     # Order the categories
+#     cat_order = settings["figure"]["cat_order"]
+#     if cat_order:
+#         df_coef["cat"] = pd.Categorical(
+#             df_coef["cat"], categories=cat_order, ordered=True
+#         )
+#         df_coef = df_coef.sort_values("cat").reset_index(drop=True)
+#         df_coef["cat"] = df_coef["cat"].astype(str)
+#     else:
+#         # Default behavior: ref_cat first, then order by proximity to ref_cat's coef
+#         ref_coef = df_coef.loc[df_coef["cat"] == ref_cat, "coef"].iloc[0]
+#         df_coef["abs_diff"] = abs(df_coef["coef"] - ref_coef)
+#         df_coef = df_coef.sort_values(by="abs_diff")
+#         df_coef = pd.concat(
+#             [
+#                 df_coef[df_coef["cat"] == ref_cat],
+#                 df_coef[df_coef["cat"] != ref_cat],
+#             ]
+#         ).reset_index(drop=True)
+#     # Add x ranges
+#     num_cats = df_coef["cat"].nunique()
+#     df_coef["x_start"] = range(num_cats)
+#     df_coef["x_end"] = range(1, num_cats + 1)
+#     df_coef["x_mid"] = df_coef.eval("0.5 * (x_start + x_end)")
+
+#     return df_coef
+
+
+# def get_beta_cats(
+#     model: MRBRT,
+# ) -> Tuple[DataFrame]:
+#     """Get beta coefficients and their standard deviations for the categories.
+
+#     Parameters
+#     ----------
+#     model
+#         Fitted linear model for the categorical model.
+
+#     Returns
+#     -------
+#     tuple[DataFrame]
+#         Dataframe of beta coefficients and their standard deviations for each category
+
+#     """
+
+#     lt = model.lt
+
+#     cov_names = []
+#     for cov_model in model.cov_models:
+#         if isinstance(cov_model, LinearCovModel):
+#             cov_name = cov_model.alt_cov[0]
+#             if cov_model.num_x_vars == 1:
+#                 cov_names.append(cov_name)
+#             else:
+#                 cov_names.extend(
+#                     [f"{cov_name}_{i}" for i in range(cov_model.num_x_vars)]
+#                 )
+#         elif isinstance(cov_model, LinearCatCovModel):
+#             cov_names.extend("cat_" + cov_model.cats.astype(str))
+#             # cov_names.extend(cov_model.cats)
+#         else:
+#             raise TypeError("Unknown cov_model type")
+
+#     beta = model.beta_soln
+#     hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
+#     beta_sd = 1.0 / np.sqrt(np.diag(hessian))
+
+#     beta_info = pd.DataFrame(
+#         {
+#             "cov_name": cov_names,
+#             "beta": beta,
+#             "beta_sd": beta_sd,
+#         }
+#     )
+
+#     beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
+#     beta_cats["cov_name_standard"] = beta_cats["cov_name"].str.removeprefix(
+#         "cat_"
+#     )
+
+#     return beta_cats
 
 
 def plot_signal_model(
     name: str,
     summary: dict,
     df: DataFrame,
-    df_coef: DataFrame,
+    cat_coefs: DataFrame,
     show_ref: bool = True,
 ) -> Figure:
     """Plot the signal model
@@ -420,25 +527,25 @@ def plot_signal_model(
         name,
         summary,
         df,
-        df_coef,
+        cat_coefs,
         ax,
         show_ref=show_ref,
     )
 
     # plot beta coefficients
     if summary["normalize_to_tmrel"]:
-        coef_min = df_coef.coef.min()
-        for i, row in df_coef.iterrows():
+        coef_min = cat_coefs.beta.min()
+        for i, row in cat_coefs.iterrows():
             ax.plot(
                 [row["x_start"] + offset, row["x_end"] - offset],
-                [row["coef"] - coef_min] * 2,
+                [row["beta"] - coef_min] * 2,
                 color="#008080",
             )
     else:
-        for i, row in df_coef.iterrows():
+        for i, row in cat_coefs.iterrows():
             ax.plot(
                 [row["x_start"] + offset, row["x_end"] - offset],
-                [row["coef"]] * 2,
+                [row["beta"]] * 2,
                 color="#008080",
             )
 
@@ -484,6 +591,8 @@ def get_linear_model(
                 "prior_order"
             ],
             use_re=True,
+            # use_re_intercept = false => each category has own random effect
+            use_re_intercept=False,
         )
     ]
     for cov_name in cov_finder_result["selected_covs"]:
@@ -501,6 +610,7 @@ def get_linear_model_summary(
     settings: dict,
     summary: dict,
     df: DataFrame,
+    cat_coefs: DataFrame,
     linear_model: MRBRT,
 ) -> dict:
     """Complete the summary from the signal model.
@@ -513,6 +623,8 @@ def get_linear_model_summary(
         Summary from the signal model.
     df
         Data frame contains the all dataset.
+    cat_coefs
+        Data frame with beta and gamma for each category for fitted linear model
     linear_model
         Fitted linear model for risk curve.
 
@@ -529,32 +641,52 @@ def get_linear_model_summary(
     alt_cats = [cat for cat in cats if cat != ref_cat]
 
     # solution of the final model
-    beta_info = get_beta_cats(linear_model)
-    gamma_info = get_gamma_info(linear_model)
-    summary["beta"] = dict(
-        zip(beta_info["cov_name_standard"], beta_info["beta"])
-    )
-    summary["beta_sd"] = dict(
-        zip(beta_info["cov_name_standard"], beta_info["beta_sd"])
-    )
-    summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
+    summary["beta"] = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
+    summary["beta_sd"] = dict(zip(cat_coefs["cat"], cat_coefs["beta_sd"]))
+    summary["gamma"] = dict(zip(cat_coefs["cat"], cat_coefs["gamma"]))
+    summary["gamma_sd"] = dict(zip(cat_coefs["cat"], cat_coefs["gamma_sd"]))
+    # beta_info = get_beta_cats(linear_model)
+    # gamma_info = get_gamma_info(linear_model)
+    # summary["beta"] = dict(
+    #     zip(beta_info["cov_name_standard"], beta_info["beta"])
+    # )
+    # summary["beta_sd"] = dict(
+    #     zip(beta_info["cov_name_standard"], beta_info["beta_sd"])
+    # )
+    # summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
     # compute the score and add star rating
     # Subset to only alternative categories
-    ref_cat_full = "cat_" + ref_cat
-    beta_alt_cats = beta_info[beta_info["cov_name"] != ref_cat_full]
+    alt_cat_coefs = cat_coefs[cat_coefs["cat"] != ref_cat]
     beta_sd = np.sqrt(
-        beta_alt_cats["beta_sd"] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+        alt_cat_coefs["beta_sd"] ** 2
+        + alt_cat_coefs["gamma"]
+        + 2 * alt_cat_coefs["gamma_sd"]
     )
-    pred = np.array(beta_alt_cats["beta"])
+    pred = np.array(alt_cat_coefs["beta"])
     inner_ui = np.vstack(
         [
-            beta_alt_cats["beta"] - 1.96 * beta_alt_cats["beta_sd"],
-            beta_alt_cats["beta"] + 1.96 * beta_alt_cats["beta_sd"],
+            alt_cat_coefs["beta"] - 1.96 * alt_cat_coefs["beta_sd"],
+            alt_cat_coefs["beta"] + 1.96 * alt_cat_coefs["beta_sd"],
         ]
     )
     sign = np.sign(pred)
-    burden_of_proof = beta_alt_cats["beta"] - sign * 1.645 * beta_sd
+    burden_of_proof = alt_cat_coefs["beta"] - sign * 1.645 * beta_sd
+
+    # ref_cat_full = "cat_" + ref_cat
+    # beta_alt_cats = beta_info[beta_info["cov_name"] != ref_cat_full]
+    # beta_sd = np.sqrt(
+    #     beta_alt_cats["beta_sd"] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    # )
+    # pred = np.array(beta_alt_cats["beta"])
+    # inner_ui = np.vstack(
+    #     [
+    #         beta_alt_cats["beta"] - 1.96 * beta_alt_cats["beta_sd"],
+    #         beta_alt_cats["beta"] + 1.96 * beta_alt_cats["beta_sd"],
+    #     ]
+    # )
+    # sign = np.sign(pred)
+    # burden_of_proof = beta_alt_cats["beta"] - sign * 1.645 * beta_sd
 
     # index = list(cats).index(ref_cat)
     # beta_alt_cats = tuple(np.delete(arr, index) for arr in beta_info)
@@ -612,13 +744,21 @@ def get_linear_model_summary(
 
     # compute the publication bias
     index = df.is_outlier == 0
-    beta_dict = dict(zip(beta_info["cov_name_standard"], beta_info["beta"]))
-    # beta_dict = dict(zip(cats, beta_info[0]))
+    beta_dict = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
+    gamma_dict = dict(zip(cat_coefs["cat"], cat_coefs["gamma"]))
+    # beta_dict = dict(zip(beta_info["cov_name_standard"], beta_info["beta"]))
     residual = df["ln_rr"].values[index] - (
         df["alt_risk_cat"].map(beta_dict).values[index]
         - df["ref_risk_cat"].map(beta_dict).values[index]
     )
-    residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
+    residual_sd = np.sqrt(
+        df["ln_rr_se"].values[index] ** 2
+        + (
+            df["alt_risk_cat"].map(gamma_dict).values[index]
+            - df["ref_risk_cat"].map(gamma_dict).values[index]
+        )
+    )
+    # residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
     weighted_residual = residual / residual_sd
     r_mean = weighted_residual.mean()
     r_sd = 1 / np.sqrt(weighted_residual.size)
@@ -652,11 +792,12 @@ def get_draws(
     beta_info = summary["beta"]
     beta_sd_info = summary["beta_sd"]
     gamma_info = summary["gamma"]
+    gamma_sd_info = summary["gamma_sd"]
     inner_beta_sd = np.array(list(beta_sd_info.values()))
     outer_beta_sd = np.sqrt(
         np.array(list(beta_sd_info.values())) ** 2
-        + gamma_info[0]
-        + 2 * gamma_info[1]
+        + np.array(list(gamma_info.values()))
+        + 2 * np.array(list(gamma_sd_info.values()))
     )
     inner_beta_samples = np.random.normal(
         loc=np.array(list(beta_info.values()))[:, None],
@@ -709,11 +850,12 @@ def get_quantiles(
     beta_info = summary["beta"]
     beta_sd_info = summary["beta_sd"]
     gamma_info = summary["gamma"]
+    gamma_sd_info = summary["gamma_sd"]
     inner_beta_sd = np.array(list(beta_sd_info.values()))
     outer_beta_sd = np.sqrt(
         np.array(list(beta_sd_info.values())) ** 2
-        + gamma_info[0]
-        + 2 * gamma_info[1]
+        + np.array(list(gamma_info.values()))
+        + 2 * np.array(list(gamma_sd_info.values()))
     )
     # get quantiles
     cats = np.array(list(beta_info.keys()))[:, None]
@@ -743,7 +885,7 @@ def plot_linear_model(
     name: str,
     summary: dict,
     df: DataFrame,
-    df_coef: DataFrame,
+    cat_coefs: DataFrame,
     show_ref: bool = True,
 ) -> Figure:
     """Plot the linear model
@@ -756,8 +898,8 @@ def plot_linear_model(
         Completed summary file.
     df
         Data frame contains the training data.
-    df_coef
-        Data frame containing the fitted beta coefficients
+    cat_coefs
+        Data frame containing the fitted beta and gamma coefficients
     show_ref
         Whether to show the reference line. Default is `True`.
 
@@ -776,52 +918,68 @@ def plot_linear_model(
         name,
         summary,
         df,
-        df_coef,
+        cat_coefs,
         ax[0],
         show_ref=show_ref,
     )
     # plot beta coefficients and uncertainty
     gamma = summary["gamma"]
+    gamma_sd = summary["gamma_sd"]
     inner_beta_sd = summary["beta_sd"]
-    df_coef["inner_beta_sd"] = df_coef["cat"].map(inner_beta_sd).values
-    df_coef["outer_beta_sd"] = np.sqrt(
-        df_coef["cat"].map(inner_beta_sd).values ** 2 + gamma[0] + 2 * gamma[1]
+    cat_coefs["inner_beta_sd"] = cat_coefs["cat"].map(inner_beta_sd).values
+    cat_coefs["outer_beta_sd"] = np.sqrt(
+        cat_coefs["cat"].map(inner_beta_sd).values ** 2
+        + cat_coefs["cat"].map(gamma).values
+        + 2 * cat_coefs["cat"].map(gamma_sd).values
     )
+    pred = cat_coefs.beta
+    cat_coefs["outer_ui_low"] = cat_coefs.beta - 1.96 * cat_coefs.outer_beta_sd
+    cat_coefs["inner_ui_low"] = cat_coefs.beta - 1.96 * cat_coefs.inner_beta_sd
+    cat_coefs["inner_ui_hi"] = cat_coefs.beta + 1.96 * cat_coefs.inner_beta_sd
+    cat_coefs["outer_ui_hi"] = cat_coefs.beta + 1.96 * cat_coefs.outer_beta_sd
+    # Reset reference UIs to be ~0
+    ref_idx = cat_coefs.loc[cat_coefs["cat"] == summary["ref_cat"]].index[0]
+    ui_cols = [col for col in cat_coefs.columns if "_ui_" in col]
+    cat_coefs.loc[ref_idx, ui_cols] = cat_coefs.loc[ref_idx, "beta"]
 
-    pred = df_coef.coef
-    df_coef["outer_ui_low"] = df_coef.coef - 1.96 * df_coef.outer_beta_sd
-    df_coef["inner_ui_low"] = df_coef.coef - 1.96 * df_coef.inner_beta_sd
-    df_coef["inner_ui_hi"] = df_coef.coef + 1.96 * df_coef.inner_beta_sd
-    df_coef["outer_ui_hi"] = df_coef.coef + 1.96 * df_coef.outer_beta_sd
+    # df_coef["inner_beta_sd"] = df_coef["cat"].map(inner_beta_sd).values
+    # df_coef["outer_beta_sd"] = np.sqrt(
+    #     df_coef["cat"].map(inner_beta_sd).values ** 2 + gamma[0] + 2 * gamma[1]
+    # )
+    # pred = df_coef.coef
+    # df_coef["outer_ui_low"] = df_coef.coef - 1.96 * df_coef.outer_beta_sd
+    # df_coef["inner_ui_low"] = df_coef.coef - 1.96 * df_coef.inner_beta_sd
+    # df_coef["inner_ui_hi"] = df_coef.coef + 1.96 * df_coef.inner_beta_sd
+    # df_coef["outer_ui_hi"] = df_coef.coef + 1.96 * df_coef.outer_beta_sd
     # Reset reference UIs to be ~ 0
-    ref_idx = df_coef.loc[df_coef["cat"] == summary["ref_cat"]].index[0]
-    ui_cols = [col for col in df_coef.columns if "_ui_" in col]
-    df_coef.loc[ref_idx, ui_cols] = df_coef.loc[ref_idx, "coef"]
+    # ref_idx = df_coef.loc[df_coef["cat"] == summary["ref_cat"]].index[0]
+    # ui_cols = [col for col in df_coef.columns if "_ui_" in col]
+    # df_coef.loc[ref_idx, ui_cols] = df_coef.loc[ref_idx, "coef"]
 
     if summary["normalize_to_tmrel"]:
         index = np.argmin(pred)
         pred -= pred[index]
-        df_coef["outer_ui_low"] -= df_coef.outer_ui_low[None, index]
-        df_coef["inner_ui_low"] -= df_coef.inner_ui_low[None, index]
-        df_coef["inner_ui_hi"] -= df_coef.inner_ui_hi[None, index]
-        df_coef["outer_ui_hi"] -= df_coef.outer_ui_hi[None, index]
+        cat_coefs["outer_ui_low"] -= cat_coefs.outer_ui_low[None, index]
+        cat_coefs["inner_ui_low"] -= cat_coefs.inner_ui_low[None, index]
+        cat_coefs["inner_ui_hi"] -= cat_coefs.inner_ui_hi[None, index]
+        cat_coefs["outer_ui_hi"] -= cat_coefs.outer_ui_hi[None, index]
 
     sign = np.sign(pred)
     log_bprf = pred * (
-        1.0 - sign * 1.645 * df_coef["outer_beta_sd"] / df_coef["coef"]
+        1.0 - sign * 1.645 * cat_coefs["outer_beta_sd"] / cat_coefs["beta"]
     )
     # reset reference index
-    log_bprf[ref_idx] = df_coef.loc[ref_idx, "coef"]
+    log_bprf[ref_idx] = cat_coefs.loc[ref_idx, "beta"]
 
-    x_start = df_coef["x_start"] + offset
-    x_end = df_coef["x_end"] - offset
+    x_start = cat_coefs["x_start"] + offset
+    x_end = cat_coefs["x_end"] - offset
 
     # Plot coefficients
     ax[0].plot([x_start, x_end], [pred] * 2, color="#008080")
     # Plot BPRF
     ax[0].plot([x_start, x_end], [log_bprf] * 2, color="red")
     # Fill between UIs
-    for i, row in df_coef.iterrows():
+    for i, row in cat_coefs.iterrows():
         ax[0].fill_between(
             [row["x_start"] + offset, row["x_end"] - offset],
             row["inner_ui_low"],
@@ -829,7 +987,7 @@ def plot_linear_model(
             color="gray",
             alpha=0.2,
         )
-    for i, row in df_coef.iterrows():
+    for i, row in cat_coefs.iterrows():
         ax[0].fill_between(
             [row["x_start"] + offset, row["x_end"] - offset],
             row["outer_ui_low"],
@@ -848,7 +1006,7 @@ def _plot_data(
     name: str,
     summary: dict,
     df: DataFrame,
-    df_coef: DataFrame,
+    cat_coefs: DataFrame,
     ax: Axes,
     show_ref: bool = True,
 ) -> Axes:
@@ -862,9 +1020,9 @@ def _plot_data(
         The summary of the signal model.
     df
         Data frame contains training data.
-    df_coef
-        Data frame containing the fitted beta coefficients,
-        either for signal or linear model
+    cat_coefs
+        Data frame containing the fitted beta coefficients (signal model),
+        or fitted beta and gamma coefficients (linear model)
     ax
         Axes of the figure. Usually corresponding to one panel of a figure.
     show_ref
@@ -882,19 +1040,19 @@ def _plot_data(
     # Then add midpoints corresponding to reference and alternative categories
     df = (
         df.merge(
-            df_coef[["cat", "coef"]].rename(columns={"cat": "ref_risk_cat"}),
+            cat_coefs[["cat", "beta"]].rename(columns={"cat": "ref_risk_cat"}),
             on="ref_risk_cat",
             how="left",
         )
         .merge(
-            df_coef[["cat", "x_mid"]].rename(
+            cat_coefs[["cat", "x_mid"]].rename(
                 columns={"cat": "alt_risk_cat", "x_mid": "alt_cat_mid"}
             ),
             on="alt_risk_cat",
             how="left",
         )
         .merge(
-            df_coef[["cat", "x_mid"]].rename(
+            cat_coefs[["cat", "x_mid"]].rename(
                 columns={"cat": "ref_risk_cat", "x_mid": "ref_cat_mid"}
             ),
             on="ref_risk_cat",
@@ -902,12 +1060,12 @@ def _plot_data(
         )
     )
 
-    ref_obs = df.coef
+    ref_obs = df.beta
     alt_obs = df.ln_rr + ref_obs
 
     # shift data position normalize to tmrel
     if summary["normalize_to_tmrel"]:
-        beta_min = df_coef.coef.min()
+        beta_min = cat_coefs.beta.min()
         ref_obs -= beta_min
         alt_obs -= beta_min
 
@@ -952,8 +1110,8 @@ def _plot_data(
     # add title and label
     rei, _ = tuple(name.split("-"))
     ax.set_title(name.replace("-", " / "), loc="left")
-    ax.set_xticks(df_coef["x_mid"])
-    ax.set_xticklabels(df_coef["cat"])
+    ax.set_xticks(cat_coefs["x_mid"])
+    ax.set_xticklabels(cat_coefs["cat"])
     ax.set_ylabel("ln relative risk")
 
     return ax
@@ -983,7 +1141,14 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
     residual = df.ln_rr.values - (
         df.alt_risk_cat.map(beta).values - df.ref_risk_cat.map(beta).values
     )
-    residual_sd = np.sqrt(df.ln_rr_se.values**2 + gamma[0])
+    residual_sd = np.sqrt(
+        df.ln_rr_se.values**2
+        + (
+            df.alt_risk_cat.map(gamma).values
+            - df.ref_risk_cat.map(gamma).values
+        )
+    )
+    # residual_sd = np.sqrt(df.ln_rr_se.values**2 + gamma[0])
 
     index = df.is_outlier == 1
     sd_max = residual_sd.max() * 1.1

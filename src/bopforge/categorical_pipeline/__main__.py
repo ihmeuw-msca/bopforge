@@ -39,9 +39,26 @@ def pre_processing(result_folder: Path) -> None:
     settings["pre_selected_covs"] = list(pre_selected_covs)
     all_settings["select_bias_covs"]["cov_finder"] = settings
 
+    # specify reference category
+    ref_cat = all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
+    if ref_cat:
+        ref_cat = ref_cat
+    else:
+        unique_cats, counts = np.unique(
+            np.hstack([df.ref_risk_cat, df.alt_risk_cat]), return_counts=True
+        )
+        ref_cat = unique_cats[counts.argmax()]
+    # store initial summary outputs
+    summary = {
+        "name": name,
+        "risk_type": str(df.risk_type.values[0]),
+        "ref_cat": ref_cat,
+    }
+
     # save results
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(all_settings, "settings.yaml")
+    dataif.dump_result(summary, "summary.yaml")
 
 
 def fit_signal_model(result_folder: Path) -> None:
@@ -63,25 +80,29 @@ def fit_signal_model(result_folder: Path) -> None:
     # load data
     df = dataif.load_result(f"{name}.csv")
 
-    # load settings
+    # load settings and summary
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["fit_signal_model"]
+    summary = dataif.load_result("summary.yaml")
 
     signal_model = functions.get_signal_model(settings, df)
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
     df = functions.add_cols(df, signal_model)
-    df_coef = functions.get_coefs(df, all_settings, signal_model)
+    cat_coefs = functions.get_cat_coefs(
+        all_settings, signal_model, "signal", summary["ref_cat"]
+    )
+    # df_coef = functions.get_coefs(df, all_settings, signal_model)
 
     summary = functions.get_signal_model_summary(
-        name, all_settings, df, df_coef
+        name, all_settings, summary, df, cat_coefs
     )
 
     fig = functions.plot_signal_model(
         name,
         summary,
         df,
-        df_coef,
+        cat_coefs,
         show_ref=all_settings["figure"]["show_ref"],
     )
 
@@ -155,12 +176,15 @@ def fit_linear_model(result_folder: Path) -> None:
     )
     linear_model.fit_model()
 
-    df_coef = functions.get_coefs(
-        df, all_settings, linear_model, summary["ref_cat"]
+    cat_coefs = functions.get_cat_coefs(
+        all_settings, linear_model, "linear", summary["ref_cat"]
     )
+    # df_coef = functions.get_coefs(
+    #     df, all_settings, linear_model, summary["ref_cat"]
+    # )
 
     summary = functions.get_linear_model_summary(
-        settings, summary, df, linear_model
+        settings, summary, df, cat_coefs, linear_model
     )
 
     df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
@@ -172,7 +196,7 @@ def fit_linear_model(result_folder: Path) -> None:
         name,
         summary,
         df,
-        df_coef,
+        cat_coefs,
         show_ref=all_settings["figure"]["show_ref"],
     )
 
