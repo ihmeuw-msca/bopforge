@@ -637,7 +637,8 @@ def get_linear_model_summary(
     # load summary
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
     ref_cat = summary["ref_cat"]
-    cats = linear_model.cov_models[0].cats
+    cats = cat_coefs["cat"]
+    # cats = linear_model.cov_models[0].cats
     alt_cats = [cat for cat in cats if cat != ref_cat]
 
     # solution of the final model
@@ -672,34 +673,6 @@ def get_linear_model_summary(
     )
     sign = np.sign(pred)
     burden_of_proof = alt_cat_coefs["beta"] - sign * 1.645 * beta_sd
-
-    # ref_cat_full = "cat_" + ref_cat
-    # beta_alt_cats = beta_info[beta_info["cov_name"] != ref_cat_full]
-    # beta_sd = np.sqrt(
-    #     beta_alt_cats["beta_sd"] ** 2 + gamma_info[0] + 2 * gamma_info[1]
-    # )
-    # pred = np.array(beta_alt_cats["beta"])
-    # inner_ui = np.vstack(
-    #     [
-    #         beta_alt_cats["beta"] - 1.96 * beta_alt_cats["beta_sd"],
-    #         beta_alt_cats["beta"] + 1.96 * beta_alt_cats["beta_sd"],
-    #     ]
-    # )
-    # sign = np.sign(pred)
-    # burden_of_proof = beta_alt_cats["beta"] - sign * 1.645 * beta_sd
-
-    # index = list(cats).index(ref_cat)
-    # beta_alt_cats = tuple(np.delete(arr, index) for arr in beta_info)
-    # beta_sd = np.sqrt(beta_alt_cats[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
-    # pred = beta_alt_cats[0]
-    # inner_ui = np.vstack(
-    #     [
-    #         beta_alt_cats[0] - 1.96 * beta_alt_cats[1],
-    #         beta_alt_cats[0] + 1.96 * beta_alt_cats[1],
-    #     ]
-    # )
-    # sign = np.sign(pred)
-    # burden_of_proof = beta_alt_cats[0] - sign * 1.645 * beta_sd
 
     if settings["score"]["normalize_to_tmrel"]:
         index = np.argmin(pred)
