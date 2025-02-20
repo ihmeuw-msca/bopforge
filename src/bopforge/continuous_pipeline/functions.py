@@ -58,7 +58,9 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
 
     for arg in ["knot_bounds", "min_dist"]:
         if not np.isscalar(settings["knots_samples"][arg]):
-            settings["knots_samples"][arg] = np.asarray(settings["knots_samples"][arg])
+            settings["knots_samples"][arg] = np.asarray(
+                settings["knots_samples"][arg]
+            )
     settings["knots_samples"] = {
         **dict(
             num_knots=len(settings["cov_model"]["spline_knots"]) - 2,
@@ -138,7 +140,9 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBeRT) -> DataFrame:
     return df
 
 
-def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> dict:
+def get_signal_model_summary(
+    name: str, all_settings: dict, df: DataFrame
+) -> dict:
     """Create signal model summary.
 
     Parameters
@@ -170,9 +174,15 @@ def get_signal_model_summary(name: str, all_settings: dict, df: DataFrame) -> di
         "risk_type": str(df.risk_type.values[0]),
         "risk_unit": str(df.risk_unit.values[0]),
     }
-    summary["risk_bounds"] = [float(risk_exposures.min()), float(risk_exposures.max())]
+    summary["risk_bounds"] = [
+        float(risk_exposures.min()),
+        float(risk_exposures.max()),
+    ]
     risk_mean = np.vstack(
-        [risk_exposures[:, [0, 1]].mean(axis=1), risk_exposures[:, [2, 3]].mean(axis=1)]
+        [
+            risk_exposures[:, [0, 1]].mean(axis=1),
+            risk_exposures[:, [2, 3]].mean(axis=1),
+        ]
     )
     risk_mean.sort(axis=0)
     summary["risk_score_bounds"] = [
@@ -246,7 +256,9 @@ def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
     pre_selected_covs = settings["cov_finder"]["pre_selected_covs"]
     if isinstance(pre_selected_covs, str):
         pre_selected_covs = [pre_selected_covs]
-    pre_selected_covs = [col.replace("cov_", "em_") for col in pre_selected_covs]
+    pre_selected_covs = [
+        col.replace("cov_", "em_") for col in pre_selected_covs
+    ]
     if "signal" not in pre_selected_covs:
         pre_selected_covs.append("signal")
     settings["cov_finder"]["pre_selected_covs"] = pre_selected_covs
@@ -296,7 +308,9 @@ def get_cov_finder_result(
     """
     beta_info = get_beta_info(cov_finder_linear_model, cov_name="signal")
     selected_covs = [
-        cov_name for cov_name in cov_finder.selected_covs if cov_name != "signal"
+        cov_name
+        for cov_name in cov_finder.selected_covs
+        if cov_name != "signal"
     ]
     cov_finder_result = {
         "beta_sd": float(beta_info[1] * 0.1),
@@ -331,14 +345,17 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
         col_data_id="seq",
     )
     cov_models = [
-        LinearCovModel("signal", use_re=False, prior_beta_uniform=[0.0, np.inf]),
+        LinearCovModel(
+            "signal", use_re=False, prior_beta_uniform=[0.0, np.inf]
+        ),
         LinearCovModel("re_signal", use_re=True, prior_beta_uniform=[0.0, 0.0]),
         LinearCovModel("intercept", use_re=True, prior_beta_uniform=[0.0, 0.0]),
     ]
     for cov_name in cov_finder_result["selected_covs"]:
         cov_models.append(
             LinearCovModel(
-                cov_name, prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]]
+                cov_name,
+                prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
             )
         )
     model = MRBRT(data, cov_models)
@@ -414,11 +431,9 @@ def get_linear_model_summary(
         summary["score"] = float("nan")
         summary["star_rating"] = 0
     else:
-        score = float(
-            ((sign * burden_of_proof)[:, index].mean(axis=1)).min()
-        )
+        score = float(((sign * burden_of_proof)[:, index].mean(axis=1)).min())
         summary["score"] = score
-        #Assign star rating based on ROS
+        # Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
         elif score > np.log(1 + 0.85):
@@ -436,7 +451,8 @@ def get_linear_model_summary(
     index = df.is_outlier == 0
     residual = df.ln_rr.values[index] - df.signal.values[index] * beta_info[0]
     residual_sd = np.sqrt(
-        df.ln_rr_se.values[index] ** 2 + df.re_signal.values[index] ** 2 * gamma_info[0]
+        df.ln_rr_se.values[index] ** 2
+        + df.re_signal.values[index] ** 2 * gamma_info[0]
     )
     weighted_residual = residual / residual_sd
     r_mean = weighted_residual.mean()
@@ -485,20 +501,26 @@ def get_draws(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
     )
     inner_beta_samples = np.random.normal(
-        loc=summary["beta"][0], scale=inner_beta_sd, size=settings["draws"]["num_draws"]
+        loc=summary["beta"][0],
+        scale=inner_beta_sd,
+        size=settings["draws"]["num_draws"],
     )
     outer_beta_samples = np.random.normal(
-        loc=summary["beta"][0], scale=outer_beta_sd, size=settings["draws"]["num_draws"]
+        loc=summary["beta"][0],
+        scale=outer_beta_sd,
+        size=settings["draws"]["num_draws"],
     )
     inner_draws = np.outer(signal, inner_beta_samples)
     outer_draws = np.outer(signal, outer_beta_samples)
     df_inner_draws = pd.DataFrame(
         np.hstack([risk[:, None], inner_draws]),
-        columns=["risk"] + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+        columns=["risk"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
     )
     df_outer_draws = pd.DataFrame(
         np.hstack([risk[:, None], outer_draws]),
-        columns=["risk"] + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+        columns=["risk"]
+        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
     )
 
     return df_inner_draws, df_outer_draws
@@ -609,7 +631,9 @@ def plot_signal_model(
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax, signal_model=signal_model, show_ref=show_ref)
+    _plot_data(
+        name, summary, df, ax, signal_model=signal_model, show_ref=show_ref
+    )
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
@@ -656,7 +680,9 @@ def plot_linear_model(
     fig, ax = plt.subplots(1, 2, figsize=(16, 5))
 
     # plot data
-    _plot_data(name, summary, df, ax[0], signal_model, linear_model, show_ref=show_ref)
+    _plot_data(
+        name, summary, df, ax[0], signal_model, linear_model, show_ref=show_ref
+    )
 
     # plot curve and uncertainty
     beta = summary["beta"]
@@ -737,8 +763,12 @@ def _plot_data(
     ref_ln_rr = signal_model.predict(
         MRData(
             covs={
-                "ref_risk_lower": np.repeat(summary["risk_bounds"][0], ref_risk.size),
-                "ref_risk_upper": np.repeat(summary["risk_bounds"][0], ref_risk.size),
+                "ref_risk_lower": np.repeat(
+                    summary["risk_bounds"][0], ref_risk.size
+                ),
+                "ref_risk_upper": np.repeat(
+                    summary["risk_bounds"][0], ref_risk.size
+                ),
                 "alt_risk_lower": ref_risk,
                 "alt_risk_upper": ref_risk,
             }
@@ -777,7 +807,13 @@ def _plot_data(
     )
     if show_ref:
         for x_0, y_0, x_1, y_1 in zip(alt_risk, alt_ln_rr, ref_risk, ref_ln_rr):
-            ax.plot([x_0, x_1], [y_0, y_1], color="#008080", linewidth=0.5, alpha=0.5)
+            ax.plot(
+                [x_0, x_1],
+                [y_0, y_1],
+                color="#008080",
+                linewidth=0.5,
+                alpha=0.5,
+            )
 
     # plot support lines
     ax.axhline(0.0, linewidth=1, linestyle="-", color="gray")
@@ -818,15 +854,21 @@ def _plot_funnel(
     # add residual information
     beta, gamma = summary["beta"], summary["gamma"]
     residual = df.ln_rr.values - df.signal.values * beta[0]
-    residual_sd = np.sqrt(df.ln_rr_se.values**2 + df.re_signal.values**2 * gamma[0])
+    residual_sd = np.sqrt(
+        df.ln_rr_se.values**2 + df.re_signal.values**2 * gamma[0]
+    )
 
     # plot funnel
     index = df.is_outlier == 1
     sd_max = residual_sd.max() * 1.1
 
     ax.set_ylim(sd_max, 0.0)
-    ax.scatter(residual, residual_sd, color="#008080", alpha=0.5, edgecolor="none")
-    ax.scatter(residual[index], residual_sd[index], color="red", alpha=0.5, marker="x")
+    ax.scatter(
+        residual, residual_sd, color="#008080", alpha=0.5, edgecolor="none"
+    )
+    ax.scatter(
+        residual[index], residual_sd[index], color="red", alpha=0.5, marker="x"
+    )
     ax.fill_betweenx(
         [0.0, sd_max],
         [0.0, -1.96 * sd_max],

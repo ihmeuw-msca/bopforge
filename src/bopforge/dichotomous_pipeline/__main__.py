@@ -144,7 +144,9 @@ def fit_linear_model(result_folder: Path) -> None:
 
     df_inner_draws, df_outer_draws = functions.get_draws(settings, summary)
 
-    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(settings, summary)
+    df_inner_quantiles, df_outer_quantiles = functions.get_quantiles(
+        settings, summary
+    )
 
     fig = functions.plot_linear_model(summary, df)
 
@@ -212,7 +214,11 @@ def run(
 def main(args=None) -> None:
     parser = ArgumentParser(description="Dichotomous burden of proof pipeline.")
     parser.add_argument(
-        "-i", "--input", type=os.path.abspath, required=True, help="Input data folder"
+        "-i",
+        "--input",
+        type=os.path.abspath,
+        required=True,
+        help="Input data folder",
     )
     parser.add_argument(
         "-o",
