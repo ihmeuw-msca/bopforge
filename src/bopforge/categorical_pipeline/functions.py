@@ -11,16 +11,18 @@ from scipy.stats import norm
 from bopforge.utils import get_beta_info, get_gamma_info
 
 
-def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
+def get_signal_model(settings: dict, df: DataFrame, summary: dict) -> MRBRT:
     """Create signal model for outliers identification and covariate selection
     step.
 
     Parameters
     ----------
     settings
-        Dictionary contains all the settings.
+        Dictionary containing settings for covariates and fitting the signal model
     df
         Data frame contains the training data.
+    summary
+        Dictionary containing initial summary outputs
 
     Returns
     -------
@@ -28,13 +30,28 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
         Signal model to access the strength of the prior on the bias-covariate.
 
     """
-    col_covs = [col for col in df.columns if col.startswith("cov_")]
+    ref_cat = summary["ref_cat"]
+    signal_model_settings = settings["fit_signal_model"]
+    cov_settings = settings["select_bias_covs"]["model_covs"]
+
+    # Load in model covariates and candidate bias covariates
+    interacted_covs = [
+        col for col in df.columns if col.startswith("model_cov_")
+    ]
+    non_interacted_covs = cov_settings["non_interacted_covs"]
+    bias_covs = cov_settings["candidate_bias_covs"]
+    # non_interacted_covs = summary["non_interacted_model_covariates"]
+    # bias_covs = summary["candidate_bias_covs"]
+
     data = MRData()
     data.load_df(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=col_covs + ["ref_risk_cat", "alt_risk_cat"],
+        col_covs=bias_covs
+        + ["ref_risk_cat", "alt_risk_cat"]
+        + interacted_covs
+        + non_interacted_covs,
         col_study_id="study_id",
         col_data_id="seq",
     )
@@ -42,13 +59,35 @@ def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
         LinearCatCovModel(
             alt_cov="alt_risk_cat",
             ref_cov="ref_risk_cat",
-            ref_cat=settings["cat_cov_model"]["ref_cat"],
-            prior_order=settings["cat_cov_model"]["prior_order"],
+            ref_cat=signal_model_settings["cat_cov_model"]["ref_cat"],
+            prior_order=signal_model_settings["cat_cov_model"]["prior_order"],
             use_re=False,
         )
     ]
+    # Add interacted covariates
+    for cov_name in interacted_covs:
+        cov_models.append(
+            LinearCovModel(
+                alt_cov=cov_name,
+                use_re=False,
+            )
+            if ref_cat not in cov_name
+            else LinearCovModel(
+                alt_cov=cov_name, use_re=False, prior_beta_uniform=[0.0, 0.0]
+            )
+        )
+    # Add non-interacted covariates
+    for cov_name in non_interacted_covs:
+        cov_models.append(
+            LinearCovModel(
+                cov_name,
+                use_re=False,
+            )
+        )
 
-    signal_model = MRBRT(data, cov_models, **settings["signal_model"])
+    signal_model = MRBRT(
+        data, cov_models, **signal_model_settings["signal_model"]
+    )
 
     return signal_model
 
@@ -113,11 +152,12 @@ def get_signal_model_summary(
     summary["normalize_to_tmrel"] = all_settings["complete_summary"]["score"][
         "normalize_to_tmrel"
     ]
+
     return summary
 
 
 def get_cov_finder(
-    settings: dict, cov_finder_linear_model: MRBRT, df: DataFrame
+    settings: dict, cov_finder_linear_model: MRBRT, df: DataFrame, summary: dict
 ) -> CovFinder:
     """Create the instance of CovFinder class.
 
@@ -129,6 +169,8 @@ def get_cov_finder(
         Fitted cov finder linear model (signal model for categorical risks)
     df
         Dataframe containing training data with column indicating outliers
+    summary
+        Summary of signal model, including list of candidate bias covariates
 
 
     Returns
@@ -157,7 +199,9 @@ def get_cov_finder(
         axis=1,
     )
     df = df[df.is_outlier == 0].copy()
-    col_covs = [col for col in df.columns if col.startswith("cov_")]
+    col_covs = settings["model_covs"]["candidate_bias_covs"]
+    # col_covs = summary["candidate_bias_covs"]
+    # col_covs = [col for col in df.columns if col.startswith("cov_")]
     data = MRData()
     data.load_df(
         df,
@@ -312,22 +356,51 @@ def get_cat_coefs(
     beta_cats["cat"] = beta_cats["cov_name"].str.removeprefix("cat_")
 
     # Extract gamma, calculate gamma_sd, and merge with beta dataframe for linear model only
+    # If category-specific gamma is not included:
+    # gamma/gamma_sd values will be identical for each category
     if type == "linear":
         lt = model.lt
-        gamma = model.gamma_soln
-        gamma_fisher = lt.get_gamma_fisher(gamma)
-        # gamma_sd = 1.0 / np.sqrt(np.diag(gamma_fisher))
-        gamma_cov = np.linalg.inv(gamma_fisher)
-        gamma_sd = np.sqrt(np.diag(gamma_cov))
-        gamma_cats = pd.DataFrame(
-            {
-                "cat": model.cov_models[
-                    model.cov_model_names == "alt_risk_cat"
-                ].cats,
-                "gamma": gamma,
-                "gamma_sd": gamma_sd,
-            }
-        )
+        if settings["complete_summary"]["cat_gamma"]["cat_specific_gamma"]:
+            gamma = model.gamma_soln
+            gamma_fisher = lt.get_gamma_fisher(gamma)
+            gamma_cov = np.linalg.inv(gamma_fisher)
+            gamma_sd = np.sqrt(np.diag(gamma_cov))
+            gamma_cats = pd.DataFrame(
+                {
+                    "cat": model.cov_models[
+                        model.cov_model_names == "alt_risk_cat"
+                    ].cats,
+                    "gamma": gamma,
+                    "gamma_sd": gamma_sd,
+                }
+            )
+        else:
+            gamma = model.gamma_soln[0]
+            gamma_fisher = lt.get_gamma_fisher(gamma)
+            gamma_sd = 1.0 / np.sqrt(gamma_fisher[0, 0])
+            gamma_cats = pd.DataFrame(
+                {
+                    "cat": model.cov_models[
+                        model.cov_model_names == "alt_risk_cat"
+                    ].cats,
+                    "gamma": np.repeat(
+                        gamma,
+                        len(
+                            model.cov_models[
+                                model.cov_model_names == "alt_risk_cat"
+                            ].cats
+                        ),
+                    ),
+                    "gamma_sd": np.repeat(
+                        gamma_sd,
+                        len(
+                            model.cov_models[
+                                model.cov_model_names == "alt_risk_cat"
+                            ].cats
+                        ),
+                    ),
+                }
+            )
         cat_coefs = beta_cats.merge(gamma_cats, on="cat", how="left")
     else:
         cat_coefs = beta_cats
@@ -362,132 +435,6 @@ def get_cat_coefs(
     cat_coefs["x_mid"] = cat_coefs.eval("0.5 * (x_start + x_end)")
 
     return cat_coefs
-
-
-# def get_coefs(
-#     df: DataFrame,
-#     settings: dict,
-#     model: MRBRT,
-#     ref_cat_input: Optional[str] = None,
-# ) -> tuple[DataFrame]:
-#     """Get beta coefficients for the categories.
-
-#     Parameters
-#     ----------
-#     df
-#         Data frame contains the training data.
-#     settings
-#         The settings for category order
-#     model
-#         Fitted model for the categories, either signal or linear model.
-#     ref_cat_input
-#         Reference category. Optional, will be inferred from settings or data
-#         if not provided.
-
-#     Returns
-#     -------
-#     tuple[DataFrame]
-#         Dataframe of beta coefficients and ranges to plot each category
-
-#     """
-#     # extract categories, betas
-#     df_coef = pd.DataFrame(
-#         dict(cat=model.cov_models[0].cats, coef=model.fe_soln["alt_risk_cat"])
-#     )
-#     if ref_cat_input is not None:
-#         ref_cat = ref_cat_input
-#     else:
-#         # Assign reference category from settings or by most common category
-#         ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
-#         if ref_cat:
-#             ref_cat = ref_cat
-#         else:
-#             unique_cats, counts = np.unique(
-#                 np.hstack([df.ref_risk_cat, df.alt_risk_cat]),
-#                 return_counts=True,
-#             )
-#             ref_cat = unique_cats[counts.argmax()]
-#     # Order the categories
-#     cat_order = settings["figure"]["cat_order"]
-#     if cat_order:
-#         df_coef["cat"] = pd.Categorical(
-#             df_coef["cat"], categories=cat_order, ordered=True
-#         )
-#         df_coef = df_coef.sort_values("cat").reset_index(drop=True)
-#         df_coef["cat"] = df_coef["cat"].astype(str)
-#     else:
-#         # Default behavior: ref_cat first, then order by proximity to ref_cat's coef
-#         ref_coef = df_coef.loc[df_coef["cat"] == ref_cat, "coef"].iloc[0]
-#         df_coef["abs_diff"] = abs(df_coef["coef"] - ref_coef)
-#         df_coef = df_coef.sort_values(by="abs_diff")
-#         df_coef = pd.concat(
-#             [
-#                 df_coef[df_coef["cat"] == ref_cat],
-#                 df_coef[df_coef["cat"] != ref_cat],
-#             ]
-#         ).reset_index(drop=True)
-#     # Add x ranges
-#     num_cats = df_coef["cat"].nunique()
-#     df_coef["x_start"] = range(num_cats)
-#     df_coef["x_end"] = range(1, num_cats + 1)
-#     df_coef["x_mid"] = df_coef.eval("0.5 * (x_start + x_end)")
-
-#     return df_coef
-
-
-# def get_beta_cats(
-#     model: MRBRT,
-# ) -> Tuple[DataFrame]:
-#     """Get beta coefficients and their standard deviations for the categories.
-
-#     Parameters
-#     ----------
-#     model
-#         Fitted linear model for the categorical model.
-
-#     Returns
-#     -------
-#     tuple[DataFrame]
-#         Dataframe of beta coefficients and their standard deviations for each category
-
-#     """
-
-#     lt = model.lt
-
-#     cov_names = []
-#     for cov_model in model.cov_models:
-#         if isinstance(cov_model, LinearCovModel):
-#             cov_name = cov_model.alt_cov[0]
-#             if cov_model.num_x_vars == 1:
-#                 cov_names.append(cov_name)
-#             else:
-#                 cov_names.extend(
-#                     [f"{cov_name}_{i}" for i in range(cov_model.num_x_vars)]
-#                 )
-#         elif isinstance(cov_model, LinearCatCovModel):
-#             cov_names.extend("cat_" + cov_model.cats.astype(str))
-#             # cov_names.extend(cov_model.cats)
-#         else:
-#             raise TypeError("Unknown cov_model type")
-
-#     beta = model.beta_soln
-#     hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
-#     beta_sd = 1.0 / np.sqrt(np.diag(hessian))
-
-#     beta_info = pd.DataFrame(
-#         {
-#             "cov_name": cov_names,
-#             "beta": beta,
-#             "beta_sd": beta_sd,
-#         }
-#     )
-
-#     beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
-#     beta_cats["cov_name_standard"] = beta_cats["cov_name"].str.removeprefix(
-#         "cat_"
-#     )
-
-#     return beta_cats
 
 
 def plot_signal_model(
@@ -572,13 +519,23 @@ def get_linear_model(
         The linear model for effect.
 
     """
+    ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
     col_covs = cov_finder_result["selected_covs"]
+    interacted_covs = [
+        col for col in df.columns if col.startswith("model_cov_")
+    ]
+    non_interacted_covs = settings["select_bias_covs"]["model_covs"][
+        "non_interacted_covs"
+    ]
     data = MRData()
     data.load_df(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=col_covs + ["ref_risk_cat", "alt_risk_cat"],
+        col_covs=col_covs
+        + ["ref_risk_cat", "alt_risk_cat"]
+        + interacted_covs
+        + non_interacted_covs,
         col_study_id="study_id",
         col_data_id="seq",
     )
@@ -592,9 +549,34 @@ def get_linear_model(
             ],
             use_re=True,
             # use_re_intercept = false => each category has own random effect
-            use_re_intercept=False,
+            # In settings, cat_specific_gamma = True => use_re_intercept = False
+            # so invert the boolean here to appropriately link things
+            use_re_intercept=not settings["complete_summary"]["cat_gamma"][
+                "cat_specific_gamma"
+            ],
         )
     ]
+    # Add interacted covariates
+    for cov_name in interacted_covs:
+        cov_models.append(
+            LinearCovModel(
+                alt_cov=cov_name,
+                use_re=False,
+            )
+            if ref_cat not in cov_name
+            else LinearCovModel(
+                alt_cov=cov_name, use_re=False, prior_beta_uniform=[0.0, 0.0]
+            )
+        )
+    # Add non-interacted covariates
+    for cov_name in non_interacted_covs:
+        cov_models.append(
+            LinearCovModel(
+                cov_name,
+                use_re=False,
+            )
+        )
+    # Add selected bias covariates
     for cov_name in cov_finder_result["selected_covs"]:
         cov_models.append(
             LinearCovModel(
@@ -602,6 +584,7 @@ def get_linear_model(
                 prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
             )
         )
+
     model = MRBRT(data, cov_models)
     return model
 
@@ -724,14 +707,22 @@ def get_linear_model_summary(
         df["alt_risk_cat"].map(beta_dict).values[index]
         - df["ref_risk_cat"].map(beta_dict).values[index]
     )
-    residual_sd = np.sqrt(
-        df["ln_rr_se"].values[index] ** 2
-        + (
-            df["alt_risk_cat"].map(gamma_dict).values[index]
+    if summary["cat_specific_gamma"]:
+        residual_sd = np.sqrt(
+            df["ln_rr_se"].values[index] ** 2
+            + (
+                df["alt_risk_cat"].map(gamma_dict).values[index]
+                + df["ref_risk_cat"].map(gamma_dict).values[index]
+            )
+        )
+    else:
+        # Avoid doubling gamma contribution in case of shared gamma across categories
+        # Could equally use "alt_risk_cat" here as gamma_dict will return the
+        # same value for both, since gamma is the same across all categories
+        residual_sd = np.sqrt(
+            df.ln_rr_se.values[index] ** 2
             + df["ref_risk_cat"].map(gamma_dict).values[index]
         )
-    )
-    # residual_sd = np.sqrt(df.ln_rr_se.values[index] ** 2 + gamma_info[0])
     weighted_residual = residual / residual_sd
     r_mean = weighted_residual.mean()
     r_sd = 1 / np.sqrt(weighted_residual.size)
@@ -1114,13 +1105,19 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
     residual = df.ln_rr.values - (
         df.alt_risk_cat.map(beta).values - df.ref_risk_cat.map(beta).values
     )
-    residual_sd = np.sqrt(
-        df.ln_rr_se.values**2
-        + (
-            df.alt_risk_cat.map(gamma).values
-            + df.ref_risk_cat.map(gamma).values
+    if summary["cat_specific_gamma"]:
+        residual_sd = np.sqrt(
+            df["ln_rr_se"].values ** 2
+            + (
+                df["alt_risk_cat"].map(gamma).values
+                + df["ref_risk_cat"].map(gamma).values
+            )
         )
-    )
+    else:
+        residual_sd = np.sqrt(
+            df.ln_rr_se.values**2 + df["ref_risk_cat"].map(gamma).values
+        )
+
     # residual_sd = np.sqrt(df.ln_rr_se.values**2 + gamma[0])
 
     index = df.is_outlier == 1

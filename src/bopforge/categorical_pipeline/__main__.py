@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from pplkit.data.interface import DataInterface
 
 import bopforge.categorical_pipeline.functions as functions
@@ -21,8 +22,9 @@ def pre_processing(result_folder: Path) -> None:
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]["cov_finder"]
+    model_cov_settings = all_settings["select_bias_covs"]["model_covs"]
 
-    # get bias covariates that need to be removed
+    # get covariates that need to be removed
     all_covs = [col for col in df.columns if col.startswith("cov_")]
     covs_to_remove = [col for col in all_covs if len(df[col].unique()) == 1]
 
@@ -32,12 +34,29 @@ def pre_processing(result_folder: Path) -> None:
     # remove from settings
     all_covs = set(all_covs)
     covs_to_remove = set(covs_to_remove)
+    subset_covs = all_covs - covs_to_remove
+    # pre-selected bias covariates
     pre_selected_covs = set(settings["pre_selected_covs"])
     pre_selected_covs = pre_selected_covs & all_covs
     pre_selected_covs = pre_selected_covs - covs_to_remove
+    # model covariates
+    interacted_covs = set(model_cov_settings["interacted_covs"])
+    non_interacted_covs = set(model_cov_settings["non_interacted_covs"])
+    interacted_covs = interacted_covs & all_covs
+    non_interacted_covs = non_interacted_covs & all_covs
+    interacted_covs = interacted_covs - covs_to_remove
+    non_interacted_covs = non_interacted_covs - covs_to_remove
+
+    # Separate model covariates from bias covariates
+    col_bias_covs = list(subset_covs - interacted_covs - non_interacted_covs)
 
     settings["pre_selected_covs"] = list(pre_selected_covs)
+    # settings["candidate_bias_covs"] = col_bias_covs
+    model_cov_settings["interacted_covs"] = list(interacted_covs)
+    model_cov_settings["non_interacted_covs"] = list(non_interacted_covs)
+    model_cov_settings["candidate_bias_covs"] = col_bias_covs
     all_settings["select_bias_covs"]["cov_finder"] = settings
+    all_settings["select_bias_covs"]["model_covs"] = model_cov_settings
 
     # specify reference category
     ref_cat = all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
@@ -53,7 +72,47 @@ def pre_processing(result_folder: Path) -> None:
         "name": name,
         "risk_type": str(df.risk_type.values[0]),
         "ref_cat": ref_cat,
+        "cat_specific_gamma": all_settings["complete_summary"]["cat_gamma"][
+            "cat_specific_gamma"
+        ],
+        # "candidate_bias_covs": col_bias_covs,
+        # "interacted_model_covariates": list(interacted_covs),
+        # "non_interacted_model_covariates": list(non_interacted_covs),
     }
+    all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"] = ref_cat
+
+    # Create design matrices for interacted covariates
+    cats = np.unique(df[["ref_risk_cat", "alt_risk_cat"]].to_numpy().ravel())
+    alt_cats_mat = pd.get_dummies(df["alt_risk_cat"], drop_first=False).astype(
+        float
+    )
+    ref_cats_mat = pd.get_dummies(df["ref_risk_cat"], drop_first=False).astype(
+        float
+    )
+    for cat in cats:
+        if cat not in alt_cats_mat:
+            alt_cats_mat[cat] = 0.0
+        if cat not in ref_cats_mat:
+            ref_cats_mat[cat] = 0.0
+    alt_cats_mat = alt_cats_mat[cats]
+    ref_cats_mat = ref_cats_mat[cats]
+    design = alt_cats_mat - ref_cats_mat
+    model_covs = list(interacted_covs)
+    design_matrices = {}
+    for cov_name in model_covs:
+        cov_name_key = f"{cov_name}_design"
+        cov_design = design.copy()
+        cat_name_temp = [
+            f"model_{cov_name}_{col}" for col in cov_design.columns
+        ]
+        cov_design.columns = cat_name_temp
+        cov_design[:] = cov_design.to_numpy() * df[cov_name].to_numpy()[:, None]
+        cov_design[cov_design == -0.0] = 0.0
+        design_matrices[cov_name_key] = cov_design
+
+    # Append model covariate design matrices to dataframe
+    for cov_name, cov_design in design_matrices.items():
+        df = pd.concat([df, cov_design], axis=1)
 
     # save results
     dataif.dump_result(df, f"{name}.csv")
@@ -82,17 +141,17 @@ def fit_signal_model(result_folder: Path) -> None:
 
     # load settings and summary
     all_settings = dataif.load_result("settings.yaml")
-    settings = all_settings["fit_signal_model"]
+    # settings = all_settings["fit_signal_model"]
+    # cov_settings = all_settings["select_bias_covs"]
     summary = dataif.load_result("summary.yaml")
 
-    signal_model = functions.get_signal_model(settings, df)
+    signal_model = functions.get_signal_model(all_settings, df, summary)
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
     df = functions.add_cols(df, signal_model)
     cat_coefs = functions.get_cat_coefs(
         all_settings, signal_model, "signal", summary["ref_cat"]
     )
-    # df_coef = functions.get_coefs(df, all_settings, signal_model)
 
     summary = functions.get_signal_model_summary(
         name, all_settings, summary, df, cat_coefs
@@ -132,10 +191,13 @@ def select_bias_covs(result_folder: Path) -> None:
 
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]
+    summary = dataif.load_result("summary.yaml")
 
     cov_finder_linear_model = dataif.load_result("signal_model.pkl")
 
-    cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model, df)
+    cov_finder = functions.get_cov_finder(
+        settings, cov_finder_linear_model, df, summary
+    )
     cov_finder.select_covs(verbose=True)
 
     cov_finder_result = functions.get_cov_finder_result(
