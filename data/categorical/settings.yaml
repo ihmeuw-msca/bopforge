@@ -15,10 +15,16 @@ default:
       inlier_pct: 0.9
   select_bias_covs:
     # settings for covariate selection
+    model_covs:
+      interacted_covs: []
+      non_interacted_covs: []
     cov_finder:
       # please put the pre-selected covariates in list
       pre_selected_covs: []
   complete_summary:
+    # whether random effect should be category-specific or shared across all categories
+    cat_gamma:
+      cat_specific_gamma: false
     # draws configuration
     draws:
       num_draws: 1000
