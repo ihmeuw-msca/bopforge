@@ -1,12 +1,14 @@
 default:
   # random seed
   seed: 0
+  # order for clearly ordinal categories
+  cat_order: []
   fit_signal_model:
     # signal model settings, contains configurations for the exposure categories
     cat_cov_model:
-      # reference exposure category, if not provided default is most common category in the data
+      # reference exposure category, default is most common category in the data
       ref_cat: 
-      # configuration for ordering the categories (in increasing order)
+      # priors for categories (in increasing order)
       # e.g., [risk_cat_1, risk_cat_2] corresponds to the logRR for risk_cat_1 <= risk_cat_2
       # complete or partial orderings may be provided
       prior_order: []
@@ -14,17 +16,15 @@ default:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
   select_bias_covs:
-    # settings for covariate selection
-    model_covs:
+    # Specify covariates: bias (binary) and model (interacted and non-interacted)
+    cov_type:
+      bias_covs: []
       interacted_covs: []
       non_interacted_covs: []
     cov_finder:
       # please put the pre-selected covariates in list
       pre_selected_covs: []
   complete_summary:
-    # whether random effect should be category-specific or shared across all categories
-    cat_gamma:
-      cat_specific_gamma: false
     # draws configuration
     draws:
       num_draws: 1000
@@ -39,5 +39,3 @@ default:
   figure:
     # show line connecting alternative and reference datapoints
     show_ref: true
-    # optional order in which to plot risk exposure categories
-    cat_order: []
