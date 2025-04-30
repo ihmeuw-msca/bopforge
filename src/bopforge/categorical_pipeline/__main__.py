@@ -21,11 +21,11 @@ def pre_processing(result_folder: Path) -> None:
     # load data
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
-    cov_settings = all_settings["select_bias_covs"]
 
     # Preprocess covariates
-    df, cov_settings = functions.covariate_preprocessing(df, cov_settings)
-    all_settings["select_bias_covs"] = cov_settings
+    df, cov_settings = functions.covariate_preprocessing(df, all_settings)
+    all_settings["cov_type"] = cov_settings["cov_type"]
+    all_settings["select_bias_covs"] = cov_settings["select_bias_covs"]
 
     # specify reference category
     unique_cats, counts = np.unique(
@@ -45,7 +45,7 @@ def pre_processing(result_folder: Path) -> None:
     all_settings["fit_signal_model"]["cat_cov_model"]["ref_cat"] = ref_cat
 
     # Add design matrices for interacted model covariates to data
-    df = functions.covariate_design_mat(df, cov_settings)
+    df = functions.covariate_design_mat(df, all_settings)
 
     # save results
     dataif.dump_result(df, f"{name}.csv")
@@ -74,8 +74,6 @@ def fit_signal_model(result_folder: Path) -> None:
 
     # load settings and summary
     all_settings = dataif.load_result("settings.yaml")
-    # settings = all_settings["fit_signal_model"]
-    # cov_settings = all_settings["select_bias_covs"]
     summary = dataif.load_result("summary.yaml")
 
     signal_model = functions.get_signal_model(all_settings, df, summary)
@@ -113,7 +111,7 @@ def select_bias_covs(result_folder: Path) -> None:
     cov_finder_linear_model = dataif.load_result("signal_model.pkl")
 
     cov_finder = functions.get_cov_finder(
-        settings, cov_finder_linear_model, df, summary
+        all_settings, settings, cov_finder_linear_model, df
     )
     cov_finder.select_covs(verbose=True)
 
@@ -155,9 +153,7 @@ def fit_linear_model(result_folder: Path) -> None:
     )
     linear_model.fit_model()
 
-    cat_coefs = functions.get_cat_coefs(
-        all_settings, linear_model, "linear", summary["ref_cat"]
-    )
+    cat_coefs = functions.get_cat_coefs(linear_model, "linear")
     pair_coefs = functions.get_pair_info(
         all_settings, summary, cat_coefs, linear_model
     )

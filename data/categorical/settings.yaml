@@ -3,6 +3,11 @@ default:
   seed: 0
   # order for clearly ordinal categories
   cat_order: []
+  cov_type:
+    # Specify covariates by type: bias (binary) and model (interacted and non-interacted)
+    bias_covs: []
+    interacted_covs: []
+    non_interacted_covs: []
   fit_signal_model:
     # signal model settings, contains configurations for the exposure categories
     cat_cov_model:
@@ -16,13 +21,8 @@ default:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
   select_bias_covs:
-    # Specify covariates: bias (binary) and model (interacted and non-interacted)
-    cov_type:
-      bias_covs: []
-      interacted_covs: []
-      non_interacted_covs: []
     cov_finder:
-      # please put the pre-selected covariates in list
+      # please put the pre-selected bias covariates in list
       pre_selected_covs: []
   complete_summary:
     # draws configuration

@@ -27,7 +27,7 @@ dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
 categorical_pipeline = "bopforge.categorical_pipeline.__main__:main"
 
 [tool.sphinx]
-project = "modrover"
+project = "bopforge"
 author = "IHME Math Sciences"
 copyright = "2024, IHME Math Sciences"
 version = "0.1.0"

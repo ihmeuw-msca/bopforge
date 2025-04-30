@@ -25,7 +25,7 @@ def covariate_preprocessing(
     df
         Dataframe with original dataset
     settings
-        Settings for the bias covariate section
+        Settings for the model fitting
 
     Returns
     -------
@@ -33,7 +33,7 @@ def covariate_preprocessing(
         Updated dataframe with problematic covariate columns dropped
         and updated settings file with problematic covariates removed
     """
-    pre_selected_cov_settings = settings["cov_finder"]
+    pre_selected_cov_settings = settings["select_bias_covs"]["cov_finder"]
     cov_settings = settings["cov_type"]
 
     # Parse types of covariates
@@ -42,59 +42,30 @@ def covariate_preprocessing(
     non_interacted_covs = set(cov_settings["non_interacted_covs"])
     pre_selected_covs = set(pre_selected_cov_settings["pre_selected_covs"])
 
-    # Validate: each set should be distinct
-    cov_sets = {
-        "bias": bias_covs,
-        "interacted": interacted_covs,
-        "non_interacted": non_interacted_covs,
-    }
-    for (name1, covs1), (name2, covs2) in combinations(cov_sets.items(), 2):
-        overlap = covs1 & covs2
-        if overlap:
-            raise ValueError(
-                f"Covariates defined in both '{name1}' and '{name2}': {overlap}"
-            )
-
-    # Validate: all covs in settings are present in data
+    # Validation checks
+    _validate_distinct_cov_sets(bias_covs, interacted_covs, non_interacted_covs)
     all_covs = bias_covs | interacted_covs | non_interacted_covs
-    covs_missing_from_df = all_covs - set(df.columns)
-    if covs_missing_from_df:
-        raise ValueError(
-            f"The following covariates are specified in settings but not found in the dataframe: {covs_missing_from_df}"
-        )
+    _validate_covs_in_data(df, all_covs)
+    _validate_binary_bias_covs(df, bias_covs)
+    _validate_preselected_subset_bias(pre_selected_covs, bias_covs)
 
-    # Validate: all bias covariates should be binary
-    for cov in bias_covs:
-        unique_vals = df[cov].unique()
-        if not set(unique_vals).issubset({0, 1}):
-            raise ValueError(f"Bias covariate '{cov}' is not binary")
-
-    # Validate: any pre-selected covs are present in the list of bias covariates
-    assert pre_selected_covs <= bias_covs, (
-        f"pre_selected_covs must be a subset of bias_covs, but had additional non-bias covariates: "
-        f"{pre_selected_covs - bias_covs}"
-    )
-
-    # Identify covariates to be removed: all or all-but-one of the same value
-    covs_to_remove = set()
-    for col in all_covs:
-        counts = df[col].value_counts()
-        if counts.iloc[0] >= len(df[col]) - 1:
-            covs_to_remove.add(col)
     # Drop from dataframe
+    covs_to_remove = _find_covs_to_remove(df, all_covs)
     df.drop(columns=covs_to_remove, inplace=True)
+
     # Drop from covariate lists
     bias_covs -= covs_to_remove
     interacted_covs -= covs_to_remove
     non_interacted_covs -= covs_to_remove
     pre_selected_covs -= covs_to_remove
+
     # Update the cov_settings
     cov_settings["bias_covs"] = list(bias_covs)
     cov_settings["interacted_covs"] = list(interacted_covs)
     cov_settings["non_interacted_covs"] = list(non_interacted_covs)
     pre_selected_cov_settings["pre_selected_covs"] = list(pre_selected_covs)
     # Save the updated settings back to the YAML file
-    settings["cov_finder"] = pre_selected_cov_settings
+    settings["select_bias_covs"]["cov_finder"] = pre_selected_cov_settings
     settings["cov_type"] = cov_settings
 
     return df, settings
@@ -111,7 +82,7 @@ def covariate_design_mat(
     df
         Dataframe with original dataset
     settings
-        Settings for the bias covariate section
+        Settings for the entire model
 
     Returns
     -------
@@ -175,7 +146,7 @@ def get_signal_model(settings: dict, df: DataFrame, summary: dict) -> MRBRT:
     """
     ref_cat = summary["ref_cat"]
     signal_model_settings = settings["fit_signal_model"]
-    cov_settings = settings["select_bias_covs"]["cov_type"]
+    cov_settings = settings["cov_type"]
 
     # Load in model covariates and candidate bias covariates
     # interacted needs the design matrix columns
@@ -263,20 +234,23 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
 
 
 def get_cov_finder(
-    settings: dict, cov_finder_linear_model: MRBRT, df: DataFrame, summary: dict
+    all_settings: dict,
+    settings: dict,
+    cov_finder_linear_model: MRBRT,
+    df: DataFrame,
 ) -> CovFinder:
     """Create the instance of CovFinder class.
 
     Parameters
     ----------
+    all_settings
+        All model settings
     settings
-        Settings for bias covariate selection.
+        Settings for pre-selected bias covariates.
     cov_finder_linear_model
         Fitted cov finder linear model (signal model for categorical risks)
     df
         Dataframe containing training data with column indicating outliers
-    summary
-        Summary of signal model, including list of candidate bias covariates
 
 
     Returns
@@ -305,7 +279,7 @@ def get_cov_finder(
         axis=1,
     )
     df = df[df.is_outlier == 0].copy()
-    col_covs = settings["cov_type"]["bias_covs"]
+    col_covs = all_settings["cov_type"]["bias_covs"]
     data = MRData()
     data.load_df(
         df,
@@ -398,29 +372,22 @@ def get_cov_finder_result(
 
 
 def get_cat_coefs(
-    settings: dict,
     model: MRBRT,
     type: str,
-    ref_cat_input: str,
 ) -> tuple[DataFrame]:
     """Get beta and gamma coefficients for the categories.
 
     Parameters
     ----------
-    settings
-        The settings for category order
     model
         Fitted model for the categories, linear or signal
     type
         String specifying whether model is signal or linear model
-    ref_cat_input
-        Reference category. Optional, will be inferred from settings or data
-        if not provided.
 
     Returns
     -------
     tuple[DataFrame]
-        Dataframe of beta, beta_sd, gamma, gamma_sd for each category and ranges to plot each category
+        Dataframe of beta, gamma, gamma_sd for each category
 
     """
 
@@ -448,7 +415,6 @@ def get_cat_coefs(
         {
             "cov_name": cov_names,
             "beta": beta,
-            # "beta_sd": beta_sd,
         }
     )
     # Subset to betas for categories only
@@ -516,9 +482,7 @@ def get_linear_model(
     interacted_covs = [
         col for col in df.columns if col.startswith("interacted_")
     ]
-    non_interacted_covs = settings["select_bias_covs"]["cov_type"][
-        "non_interacted_covs"
-    ]
+    non_interacted_covs = settings["cov_type"]["non_interacted_covs"]
     data = MRData()
     data.load_df(
         df,
@@ -637,16 +601,12 @@ def get_pair_info(
         .rename(columns={"beta": "beta_alt"})
         .drop(columns=["cat"])
     )
-    cat_pairs = (
-        cat_pairs.merge(
-            cat_coefs[["cat", "gamma"]],
-            left_on="ref_risk_cat",
-            right_on="cat",
-            how="left",
-        )
-        # .rename(columns={"gamma": "gamma_ref"})
-        .drop(columns=["cat"])
-    )
+    cat_pairs = cat_pairs.merge(
+        cat_coefs[["cat", "gamma"]],
+        left_on="ref_risk_cat",
+        right_on="cat",
+        how="left",
+    ).drop(columns=["cat"])
 
     # Compute beta_adjusted: difference between alt and ref
     cat_pairs["beta_adjusted"] = cat_pairs["beta_alt"] - cat_pairs["beta_ref"]
@@ -817,7 +777,6 @@ def get_linear_model_summary(
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
     ref_cat = summary["ref_cat"]
     cats = cat_coefs["cat"]
-    # cats = linear_model.cov_models[0].cats
     alt_cats = [cat for cat in cats if cat != ref_cat]
 
     # solution of the final model with pairwise comparisons
@@ -1470,6 +1429,57 @@ def _plot_funnel(
     ax.set_ylabel("residual sd")
 
     return ax
+
+
+def _validate_distinct_cov_sets(
+    bias: set, interacted: set, non_interacted: set
+):
+    # Validate: each set should be distinct
+    cov_sets = {
+        "bias": bias,
+        "interacted": interacted,
+        "non_interacted": non_interacted,
+    }
+    for (name1, covs1), (name2, covs2) in combinations(cov_sets.items(), 2):
+        overlap = covs1 & covs2
+        if overlap:
+            raise ValueError(
+                f"Covariates defined in both '{name1}' and '{name2}': {overlap}"
+            )
+
+
+def _validate_covs_in_data(df: DataFrame, covs: set):
+    # Validate: all covs in settings are present in data
+    covs_missing_from_df = covs - set(df.columns)
+    if covs_missing_from_df:
+        raise ValueError(
+            f"The following covariates are specified in settings but not found in the dataframe: {covs_missing_from_df}"
+        )
+
+
+def _validate_binary_bias_covs(df: DataFrame, bias_covs: set):
+    # Validate: all bias covariates should be binary
+    for cov in bias_covs:
+        unique_vals = df[cov].unique()
+        if not set(unique_vals).issubset({0, 1}):
+            raise ValueError(f"Bias covariate '{cov}' is not binary")
+
+
+def _validate_preselected_subset_bias(pre_selected_covs: set, bias_covs: set):
+    # Validate: any pre-selected covs are present in the list of bias covariates
+    assert pre_selected_covs <= bias_covs, (
+        f"pre_selected_covs must be a subset of bias_covs, but had additional non-bias covariates: "
+        f"{pre_selected_covs - bias_covs}"
+    )
+
+
+def _find_covs_to_remove(df: DataFrame, all_covs: set):
+    # Identify covariates to be removed: all or all-but-one of the same value
+    covs_to_remove = set()
+    for col in all_covs:
+        counts = df[col].value_counts()
+        if counts.iloc[0] >= len(df[col]) - 1:
+            covs_to_remove.add(col)
 
 
 # def plot_signal_model(
