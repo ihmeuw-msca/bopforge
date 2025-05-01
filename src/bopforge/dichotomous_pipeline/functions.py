@@ -1,11 +1,12 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from bopforge.utils import get_beta_info, get_gamma_info
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
+
+from bopforge.utils import get_beta_info, get_gamma_info
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
@@ -117,7 +118,8 @@ def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
     candidate_covs = [
         cov_name
         for cov_name in data.covs.keys()
-        if cov_name not in settings["cov_finder"]["pre_selected_covs"] + ["intercept"]
+        if cov_name
+        not in settings["cov_finder"]["pre_selected_covs"] + ["intercept"]
     ]
     settings["cov_finder"] = {
         **dict(
@@ -140,7 +142,9 @@ def get_cov_finder(settings: dict, cov_finder_linear_model: MRBRT) -> CovFinder:
     return cov_finder
 
 
-def get_cov_finder_result(cov_finder_linear_model: MRBRT, cov_finder: MRBRT) -> dict:
+def get_cov_finder_result(
+    cov_finder_linear_model: MRBRT, cov_finder: MRBRT
+) -> dict:
     """Summarize result from bias covariate selection.
 
     Parameters
@@ -158,7 +162,9 @@ def get_cov_finder_result(cov_finder_linear_model: MRBRT, cov_finder: MRBRT) -> 
     """
     beta_info = get_beta_info(cov_finder_linear_model, cov_name="intercept")
     selected_covs = [
-        cov_name for cov_name in cov_finder.selected_covs if cov_name != "intercept"
+        cov_name
+        for cov_name in cov_finder.selected_covs
+        if cov_name != "intercept"
     ]
 
     # save results
@@ -201,7 +207,8 @@ def get_linear_model(df: DataFrame, cov_finder_result: dict) -> MRBRT:
     for cov_name in cov_finder_result["selected_covs"]:
         cov_models.append(
             LinearCovModel(
-                cov_name, prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]]
+                cov_name,
+                prior_beta_gaussian=[0.0, cov_finder_result["beta_sd"]],
             )
         )
     model = MRBRT(data, cov_models)
@@ -247,7 +254,7 @@ def get_linear_model_summary(
     else:
         score = float(0.5 * sign * burden_of_proof)
         summary["score"] = score
-        #Assign star rating based on ROS
+        # Assign star rating based on ROS
         if np.isnan(score):
             summary["star_rating"] = 0
         elif score > np.log(1 + 0.85):
@@ -297,12 +304,18 @@ def get_draws(
     beta_info = summary["beta"]
     gamma_info = summary["gamma"]
     inner_beta_sd = beta_info[1]
-    outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
+    outer_beta_sd = np.sqrt(
+        beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    )
     inner_beta_samples = np.random.normal(
-        loc=beta_info[0], scale=inner_beta_sd, size=settings["draws"]["num_draws"]
+        loc=beta_info[0],
+        scale=inner_beta_sd,
+        size=settings["draws"]["num_draws"],
     )
     outer_beta_samples = np.random.normal(
-        loc=beta_info[0], scale=outer_beta_sd, size=settings["draws"]["num_draws"]
+        loc=beta_info[0],
+        scale=outer_beta_sd,
+        size=settings["draws"]["num_draws"],
     )
     df_inner_draws = pd.DataFrame(
         inner_beta_samples[None, :],
@@ -338,7 +351,9 @@ def get_quantiles(
     beta_info = summary["beta"]
     gamma_info = summary["gamma"]
     inner_beta_sd = beta_info[1]
-    outer_beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
+    outer_beta_sd = np.sqrt(
+        beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
+    )
     inner_beta_quantiles = norm.ppf(
         settings["draws"]["quantiles"], loc=beta_info[0], scale=inner_beta_sd
     )
@@ -410,11 +425,19 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
     beta, gamma = summary["beta"], summary["gamma"]
     beta_inner_sd = beta[1]
     beta_outer_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2.0 * gamma[1])
-    beta_inner = [beta[0] - 1.96 * beta_inner_sd, beta[0] + 1.96 * beta_inner_sd]
-    beta_outer = [beta[0] - 1.96 * beta_outer_sd, beta[0] + 1.96 * beta_outer_sd]
+    beta_inner = [
+        beta[0] - 1.96 * beta_inner_sd,
+        beta[0] + 1.96 * beta_inner_sd,
+    ]
+    beta_outer = [
+        beta[0] - 1.96 * beta_outer_sd,
+        beta[0] + 1.96 * beta_outer_sd,
+    ]
 
     # plot data
-    ax.scatter(df.ln_rr, df.ln_rr_se, color="#008080", alpha=0.4, edgecolor="none")
+    ax.scatter(
+        df.ln_rr, df.ln_rr_se, color="#008080", alpha=0.4, edgecolor="none"
+    )
     outlier_index = df.is_outlier == 1
     ax.scatter(
         df.ln_rr[outlier_index],
@@ -434,10 +457,16 @@ def _plot_funnel(summary: dict, df: DataFrame, ax: Axes) -> Axes:
         alpha=0.2,
     )
     ax.plot(
-        [beta[0], beta[0] - 1.96 * se_max], [0.0, se_max], linewidth=1, color="gray"
+        [beta[0], beta[0] - 1.96 * se_max],
+        [0.0, se_max],
+        linewidth=1,
+        color="gray",
     )
     ax.plot(
-        [beta[0], beta[0] + 1.96 * se_max], [0.0, se_max], linewidth=1, color="gray"
+        [beta[0], beta[0] + 1.96 * se_max],
+        [0.0, se_max],
+        linewidth=1,
+        color="gray",
     )
     ax.set_ylim([se_max, 0.0])
 

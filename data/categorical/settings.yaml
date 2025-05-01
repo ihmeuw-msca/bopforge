@@ -1,0 +1,41 @@
+default:
+  # random seed
+  seed: 0
+  # order for clearly ordinal categories
+  cat_order: []
+  cov_type:
+    # Specify covariates by type: bias (binary) and model (interacted and non-interacted)
+    bias_covs: []
+    interacted_covs: []
+    non_interacted_covs: []
+  fit_signal_model:
+    # signal model settings, contains configurations for the exposure categories
+    cat_cov_model:
+      # reference exposure category, default is most common category in the data
+      ref_cat: 
+      # priors for categories (in increasing order)
+      # e.g., [risk_cat_1, risk_cat_2] corresponds to the logRR for risk_cat_1 <= risk_cat_2
+      # complete or partial orderings may be provided
+      prior_order: []
+    signal_model:
+      # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
+      inlier_pct: 0.9
+  select_bias_covs:
+    cov_finder:
+      # please put the pre-selected bias covariates in list
+      pre_selected_covs: []
+  complete_summary:
+    # draws configuration
+    draws:
+      num_draws: 1000
+      # additional quantiles for accurate estimation of quantiles rather than rely on draws
+      quantiles: [0.025, 0.05, 0.5, 0.95, 0.975]
+    score:
+      # if we normalize the risk 'curve' to the lowest log RR
+      # only for j-shaped this can be true
+      # NOTE: shape will be dependent on plotting order (i.e., could artificially end up with a j-shaped curve, 
+      # as risk exposure categories do not increase in a fixed order, unlike continuous risk exposure values)
+      normalize_to_tmrel: false
+  figure:
+    # show line connecting alternative and reference datapoints
+    show_ref: true

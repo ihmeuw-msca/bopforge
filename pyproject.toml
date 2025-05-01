@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bopforge"
-version = "0.0.6"
+version = "0.1.0"
 description = "Pipelines for Burden of Proof (BoP) analyses"
 readme = "REDME.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "IHME Math Sciences", email = "ihme.math.sciences@gmail.com" },
 ]
-dependencies = ["numpy", "scipy", "pandas", "matplotlib", "mrtool==0.1.4", "pplkit"]
+dependencies = ["numpy<2.0.0", "scipy>=1.14.1", "pandas", "matplotlib", "mrtool>=0.2.1", "pplkit"]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -24,9 +24,10 @@ github = "https://github.com/ihmeuw-msca/bopforge"
 [project.scripts]
 continuous_pipeline = "bopforge.continuous_pipeline.__main__:main"
 dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
+categorical_pipeline = "bopforge.categorical_pipeline.__main__:main"
 
 [tool.sphinx]
-project = "modrover"
+project = "bopforge"
 author = "IHME Math Sciences"
 copyright = "2024, IHME Math Sciences"
-version = "0.0.6"
+version = "0.1.0"

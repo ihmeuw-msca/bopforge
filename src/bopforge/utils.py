@@ -1,8 +1,9 @@
 """
 Ultility functions
 """
+
 import argparse
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from mrtool import MRBRT, MRBeRT, MRData
@@ -31,7 +32,9 @@ def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
     return des_dict
 
 
-def get_beta_info(model: MRBRT, cov_name: str = "signal") -> Tuple[float, float]:
+def get_beta_info(
+    model: MRBRT, cov_name: str | None = "signal"
+) -> Tuple[float, float]:
     """Get the posterior information of beta.
 
     Parameters
@@ -47,10 +50,15 @@ def get_beta_info(model: MRBRT, cov_name: str = "signal") -> Tuple[float, float]
         Return the mean and standard deviation of the corresponding beta.
     """
     lt = model.lt
-    index = model.cov_names.index(cov_name)
-    beta = model.beta_soln[index]
-    beta_hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
-    beta_sd = 1.0 / np.sqrt(beta_hessian[index, index])
+    if cov_name is None:
+        beta = model.beta_soln.copy()
+        beta_hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
+        beta_sd = 1.0 / np.sqrt(np.diag(beta_hessian))
+    else:
+        index = model.cov_names.index(cov_name)
+        beta = model.beta_soln[index]
+        beta_hessian = lt.hessian(lt.soln)[: lt.k_beta, : lt.k_beta]
+        beta_sd = 1.0 / np.sqrt(beta_hessian[index, index])
     return (beta, beta_sd)
 
 
