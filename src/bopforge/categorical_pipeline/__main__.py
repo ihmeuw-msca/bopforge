@@ -106,7 +106,6 @@ def select_bias_covs(result_folder: Path) -> None:
 
     all_settings = dataif.load_result("settings.yaml")
     settings = all_settings["select_bias_covs"]
-    summary = dataif.load_result("summary.yaml")
 
     cov_finder_linear_model = dataif.load_result("signal_model.pkl")
 
@@ -153,13 +152,13 @@ def fit_linear_model(result_folder: Path) -> None:
     )
     linear_model.fit_model()
 
-    cat_coefs = functions.get_cat_coefs(linear_model, "linear")
+    cat_coefs = functions.get_cat_coefs(linear_model)
     pair_coefs = functions.get_pair_info(
         all_settings, summary, cat_coefs, linear_model
     )
 
     summary = functions.get_linear_model_summary(
-        all_settings, settings, summary, df, cat_coefs, pair_coefs, linear_model
+        all_settings, settings, summary, df, cat_coefs, pair_coefs
     )
 
     df_cleaned = df.loc[:, ~df.columns.str.startswith("interacted_")]

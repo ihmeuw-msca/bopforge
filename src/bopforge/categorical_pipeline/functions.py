@@ -142,7 +142,6 @@ def get_signal_model(settings: dict, df: DataFrame, summary: dict) -> MRBRT:
     -------
     MRBRT
         Signal model to access the strength of the prior on the bias-covariate.
-
     """
     ref_cat = summary["ref_cat"]
     signal_model_settings = settings["fit_signal_model"]
@@ -219,9 +218,7 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
     -------
     DataFrame
         DataFrame with additional columns of oulier indicator.
-
     """
-
     data = signal_model.data
     is_outlier = (signal_model.w_soln < 0.1).astype(int)
     df = df.merge(
@@ -252,12 +249,10 @@ def get_cov_finder(
     df
         Dataframe containing training data with column indicating outliers
 
-
     Returns
     -------
     CovFinder
         The instance of the CovFinder class.
-
     """
     data_signal = cov_finder_linear_model.data
     cats = cov_finder_linear_model.cov_models[0].cats
@@ -344,7 +339,6 @@ def get_cov_finder_result(
     -------
     dict
         Result summary for bias covariate selection.
-
     """
     beta_info = get_beta_info(cov_finder_linear_model, cov_name=None)
     cats = cov_finder_linear_model.cov_models[0].cats
@@ -373,7 +367,6 @@ def get_cov_finder_result(
 
 def get_cat_coefs(
     model: MRBRT,
-    type: str,
 ) -> tuple[DataFrame]:
     """Get beta and gamma coefficients for the categories.
 
@@ -381,16 +374,12 @@ def get_cat_coefs(
     ----------
     model
         Fitted model for the categories, linear or signal
-    type
-        String specifying whether model is signal or linear model
 
     Returns
     -------
     tuple[DataFrame]
         Dataframe of beta, gamma, gamma_sd for each category
-
     """
-
     lt = model.lt
 
     # Extract betas for categories and covariates, ensuring correct matching
@@ -421,38 +410,15 @@ def get_cat_coefs(
     beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
     beta_cats["cat"] = beta_cats["cov_name"].str.removeprefix("cat_")
 
-    # Extract gamma, calculate gamma_sd, and merge with beta dataframe for linear model only
-    if type == "linear":
-        lt = model.lt
-        gamma = model.gamma_soln[0]
-        gamma_fisher = lt.get_gamma_fisher(gamma)
-        gamma_sd = 1.0 / np.sqrt(gamma_fisher[0, 0])
-        gamma_cats = pd.DataFrame(
-            {
-                "cat": model.cov_models[
-                    model.cov_model_names == "alt_risk_cat"
-                ].cats,
-                "gamma": np.repeat(
-                    gamma,
-                    len(
-                        model.cov_models[
-                            model.cov_model_names == "alt_risk_cat"
-                        ].cats
-                    ),
-                ),
-                "gamma_sd": np.repeat(
-                    gamma_sd,
-                    len(
-                        model.cov_models[
-                            model.cov_model_names == "alt_risk_cat"
-                        ].cats
-                    ),
-                ),
-            }
-        )
-        cat_coefs = beta_cats.merge(gamma_cats, on="cat", how="left")
-    else:
-        cat_coefs = beta_cats
+    # Extract gamma, calculate gamma_sd, and merge with beta dataframe
+    # Since gamma and gamma sd are shared across categories, merge in directly
+    gamma = model.gamma_soln[0]
+    gamma_fisher = lt.get_gamma_fisher(gamma)
+    gamma_sd = 1.0 / np.sqrt(gamma_fisher[0, 0])
+    cat_coefs = beta_cats
+    n_cats = len(cat_coefs["cat"])
+    cat_coefs["gamma"] = np.repeat(gamma, n_cats)
+    cat_coefs["gamma_sd"] = np.repeat(gamma_sd, n_cats)
 
     return cat_coefs
 
@@ -475,7 +441,6 @@ def get_linear_model(
     -------
     MRBRT
         The linear model for effect.
-
     """
     ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
     col_covs = cov_finder_result["selected_covs"]
@@ -505,12 +470,6 @@ def get_linear_model(
             ],
             use_re=True,
             use_re_intercept=True,
-            # use_re_intercept = false => each category has own random effect
-            # In settings, cat_specific_gamma = True => use_re_intercept = False
-            # so invert the boolean here to appropriately link things
-            # use_re_intercept=not settings["complete_summary"]["cat_gamma"][
-            #     "cat_specific_gamma"
-            # ],
             prior_gamma_uniform=[0.0, np.inf],
         )
     ]
@@ -547,13 +506,77 @@ def get_linear_model(
     return model
 
 
+def hess_subset(matrix, i):
+    """Remove the ith row and ith column from the Hessian to create the
+    sub-matrix of the Hessian for use in calculating pairwise beta variance
+
+    Parameters
+    ----------
+    matrix (numpy.ndarray): Hessian
+    i (int): The index of the row and column to remove.
+
+    Returns
+    -------
+    numpy.ndarray: The (n-1) x (n-1) sub-Hessian.
+    """
+    return np.delete(np.delete(matrix, i, axis=0), i, axis=1)
+
+
+def get_pairwise_beta_var(
+    hessian: np.ndarray, cat_names: list[str]
+) -> pd.DataFrame:
+    """Calculate beta_sd for pairwise comparisons using submatrices of the Hessian.
+    Removing the i'th row and column of the Hessian allows us to directly invert
+    the resulting sub-Hessian (no longer singular) to get the approximated
+    covariance matrix sigma_i, where the diagonal elements sigma_i_{jj} are the
+    variance of category j given category i as reference. Repeating for each
+    row/column gives us the full set of variances for each category with respect
+    to all other categories; variance of category j with respect to category i
+    is the same as variance of category i with respect to category j; i.e., the
+    variance is category order-invariant. This function extracts the diagonals
+    of each sub-Hessian and stores only the unique pair-variance combinations to
+    obtain the full set of pairwise variances/standard deviations of beta.
+
+    Parameters
+    ----------
+     hessian
+        Hessian submatrix obtained by removing ith row and column from Hessian.
+    cat_names
+        Category names corresponding to coefficients
+
+    Returns
+    -------
+    DataFrame
+        Dataframe containing pairwise beta standard deviations.
+    """
+    n_cats = len(cat_names)
+    pair_variances = []
+    for i in range(n_cats):
+        ref_cat = cat_names[i]
+        vcov_sub = np.linalg.inv(hess_subset(hessian, i))
+        alt_idx = [j for j in range(n_cats) if j != i]
+        for j, idx in enumerate(alt_idx):
+            alt_cat = cat_names[idx]
+            pair = "-".join(sorted([ref_cat, alt_cat]))
+            if pair not in {p[0] for p in pair_variances}:
+                variance = vcov_sub[j, j]
+                pair_variances.append((pair, variance))
+    # Convert to DataFrame and join
+    var_df = pd.DataFrame(
+        pair_variances, columns=["pair_standardized", "variance"]
+    )
+    var_df["inner_beta_sd"] = np.sqrt(var_df["variance"])
+
+    return var_df[["pair_standardized", "inner_beta_sd"]]
+
+
 def get_pair_info(
     settings: dict,
     summary: dict,
     cat_coefs: DataFrame,
     linear_model: MRBRT,
 ) -> tuple[DataFrame]:
-    """Returns pairwise comparisons.
+    """Returns pairwise comparisons and parameters.
 
     Parameters
     ----------
@@ -571,65 +594,37 @@ def get_pair_info(
     dict
         Dataframe containing pairwise beta, gamma, their standard deviations,
         and summary outputs.
-
     """
     # load summary
     ref_cat = summary["ref_cat"]
     cats = cat_coefs["cat"]
     n_cats = len(cats)
-    cat_pairs_list = list(combinations(cats, 2))
-    cat_pairs = pd.DataFrame(
-        cat_pairs_list, columns=["ref_risk_cat", "alt_risk_cat"]
-    )
-    cat_pairs = (
-        cat_pairs.merge(
-            cat_coefs[["cat", "beta"]],
-            left_on="ref_risk_cat",
-            right_on="cat",
-            how="left",
-        )
-        .rename(columns={"beta": "beta_ref"})
-        .drop(columns=["cat"])
-    )
-    cat_pairs = (
-        cat_pairs.merge(
-            cat_coefs[["cat", "beta"]],
-            left_on="alt_risk_cat",
-            right_on="cat",
-            how="left",
-        )
-        .rename(columns={"beta": "beta_alt"})
-        .drop(columns=["cat"])
-    )
-    cat_pairs = cat_pairs.merge(
-        cat_coefs[["cat", "gamma"]],
-        left_on="ref_risk_cat",
-        right_on="cat",
-        how="left",
-    ).drop(columns=["cat"])
 
-    # Compute beta_adjusted: difference between alt and ref
-    cat_pairs["beta_adjusted"] = cat_pairs["beta_alt"] - cat_pairs["beta_ref"]
-    # Adjust so that all pairwise betas are positive
+    cat_pairs = pd.DataFrame(
+        list(combinations(cats, 2)), columns=["ref_risk_cat", "alt_risk_cat"]
+    )
+    # Calculate pairwise beta as beta_alt - beta_ref
+    cat_to_beta = cat_coefs.set_index("cat")["beta"]
+    cat_pairs["beta_adjusted"] = cat_pairs["alt_risk_cat"].map(
+        cat_to_beta
+    ) - cat_pairs["ref_risk_cat"].map(cat_to_beta)
+    # Adjust so all pairwise betas are positive
     mask = cat_pairs["beta_adjusted"] < 0
     cat_pairs.loc[
         mask,
         [
             "ref_risk_cat",
             "alt_risk_cat",
-            "beta_ref",
-            "beta_alt",
         ],
     ] = cat_pairs.loc[
         mask,
         [
             "alt_risk_cat",
             "ref_risk_cat",
-            "beta_alt",
-            "beta_ref",
         ],
     ].values
-    cat_pairs.loc[mask, "beta_adjusted"] = -cat_pairs.loc[mask, "beta_adjusted"]
+    cat_pairs["beta_adjusted"] = cat_pairs["beta_adjusted"].abs()
+    # Add pair name
     cat_pairs["pair"] = (
         cat_pairs["alt_risk_cat"] + "-" + cat_pairs["ref_risk_cat"]
     )
@@ -638,41 +633,33 @@ def get_pair_info(
     )
 
     # Compute variance for the pairwise betas
-    indices = np.fromiter(combinations(range(n_cats), 2), dtype=(int, (2,)))
-    pair_names = ["-".join(sorted([cats[i], cats[j]])) for i, j in indices]
-
+    cat_names = []
+    for cov_model in linear_model.cov_models:
+        if isinstance(cov_model, LinearCatCovModel):
+            cat_names.extend(cov_model.cats.astype(str))
     lt = linear_model.lt
     hessian = lt.hessian(lt.soln)[:n_cats, :n_cats]
-    vmat = np.zeros((len(indices), n_cats))
-    for i, index in enumerate(indices):
-        vmat[i, index[0]] = 1
-        vmat[i, index[1]] = -1
-    variance = (vmat * np.linalg.solve(hessian, vmat.T).T).sum(axis=1)
-    df_variance = pd.DataFrame(
-        {"pair": pair_names, "variance": variance, "beta_sd": np.sqrt(variance)}
-    )
-    df_variance["pair_standardized"] = df_variance["pair"].apply(
-        lambda x: "-".join(sorted(x.split("-")))
-    )
+    var_df = get_pairwise_beta_var(hessian, cat_names)
     cat_pairs = cat_pairs.merge(
-        df_variance[["pair_standardized", "beta_sd"]],
+        var_df,
         on="pair_standardized",
         how="left",
-    ).rename(columns={"beta_sd": "inner_beta_sd"})
-    # Now gamma – multiply by 2 since shifting to the pairwise comparison?
-    cat_pairs["gamma_adjusted"] = 2 * cat_pairs["gamma"]
-    gamma_sd = set(cat_coefs["gamma_sd"])
-    if len(gamma_sd) == 1:
-        # Sum variance of gamma from ref and alt to account for pairwise comparison
-        cat_pairs["gamma_sd"] = 2 * gamma_sd.pop()
-    else:
-        print("Warning: there is more than one unique gamma_sd value")
-    cat_pairs["outer_beta_sd"] = np.sqrt(
-        cat_pairs["inner_beta_sd"] ** 2
-        + cat_pairs["gamma_adjusted"]
-        + 2 * cat_pairs["gamma_sd"]
     )
 
+    # Add gamma and gamma_sd
+    cat_to_gamma = cat_coefs.set_index("cat")["gamma"]
+    cat_pairs["gamma"] = cat_pairs["ref_risk_cat"].map(cat_to_gamma)
+    unique_gamma_sd = cat_coefs["gamma_sd"].unique()
+    if len(unique_gamma_sd) != 1:
+        print("Warning: more than one unique gamma_sd value found")
+    gamma_sd = unique_gamma_sd[0]
+    cat_pairs["gamma_sd"] = gamma_sd
+    cat_pairs["outer_beta_sd"] = np.sqrt(
+        cat_pairs["inner_beta_sd"] ** 2
+        + cat_pairs["gamma"]
+        + 2 * cat_pairs["gamma_sd"]
+    )
+    # Subset to just the relevant columns
     cat_pairs_subset = cat_pairs[
         [
             "ref_risk_cat",
@@ -681,10 +668,11 @@ def get_pair_info(
             "beta_adjusted",
             "inner_beta_sd",
             "outer_beta_sd",
-            "gamma_adjusted",
+            "gamma",
             "gamma_sd",
         ]
-    ].rename(columns={"beta_adjusted": "beta", "gamma_adjusted": "gamma"})
+    ].rename(columns={"beta_adjusted": "beta"})
+
     sign = np.sign(cat_pairs_subset["beta"])
     cat_pairs_subset = cat_pairs_subset.assign(
         inner_ui_lower=cat_pairs_subset["beta"]
@@ -730,11 +718,6 @@ def get_pair_info(
                 cat_pairs_subset["pair"].str.contains(ref_cat)
             ]
     cat_pairs_subset.sort_values(by="beta", ascending=False, inplace=True)
-    # # Add plotting ranges
-    # num_cats = cat_pairs_subset["pair"].nunique()
-    # cat_pairs_subset["y_start"] = range(num_cats)
-    # cat_pairs_subset["y_end"] = range(1, num_cats + 1)
-    # cat_pairs_subset["y_mid"] = cat_pairs_subset.eval("0.5 * (y_start + y_end)")
 
     return cat_pairs_subset
 
@@ -746,7 +729,6 @@ def get_linear_model_summary(
     df: DataFrame,
     cat_coefs: DataFrame,
     pair_coefs: DataFrame,
-    linear_model: MRBRT,
 ) -> dict:
     """Complete the summary from the signal model.
 
@@ -764,14 +746,11 @@ def get_linear_model_summary(
         Data frame with beta and gamma for each category for fitted linear model
     pair_coefs
         Data frame with beta and gamma for the pairwise category comparisons
-    linear_model
-        Fitted linear model for risk curve.
 
     Returns
     -------
     dict
         Summary file contains all necessary information.
-
     """
     # load summary
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
@@ -863,19 +842,7 @@ def get_draws(
     -------
     tuple[DataFrame, DataFrame]
         Inner and outer draw files.
-
     """
-
-    # beta_info = summary["beta"]
-    # beta_sd_info = summary["beta_sd"]
-    # gamma_info = summary["gamma"]
-    # gamma_sd_info = summary["gamma_sd"]
-    # inner_beta_sd = np.array(list(beta_sd_info.values()))
-    # outer_beta_sd = np.sqrt(
-    #     np.array(list(beta_sd_info.values())) ** 2
-    #     + np.array(list(gamma_info.values()))
-    #     + 2 * np.array(list(gamma_sd_info.values()))
-    # )
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
@@ -938,9 +905,7 @@ def get_quantiles(
     -------
     tuple[DataFrame, DataFrame]
         Inner and outer quantile files.
-
     """
-
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
@@ -1025,7 +990,6 @@ def plot_linear_model(
     -------
     Figure
         The figure object for linear model.
-
     """
     offset = 0.05
     pair_coefs = pair_coefs.copy()
@@ -1118,7 +1082,6 @@ def plot_linear_panel_model(
     -------
     Figure
         The figure object for linear model.
-
     """
     offset = 0.05
 
@@ -1297,7 +1260,6 @@ def _plot_data(
     -------
     Axes
         Return the axes back for further plotting.
-
     """
     np.random.seed(0)
 
@@ -1364,7 +1326,6 @@ def _plot_funnel(
     summary: dict, cat_coefs: DataFrame, df: DataFrame, ax: Axes
 ) -> Axes:
     """Plot the funnel plot
-
     Parameters
     ----------
     summary
@@ -1380,9 +1341,7 @@ def _plot_funnel(
     -------
     Axes
         Return the axes back for further plotting.
-
     """
-
     # add residual information
     beta = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
     gamma = summary["gamma"]
@@ -1433,8 +1392,23 @@ def _plot_funnel(
 
 def _validate_distinct_cov_sets(
     bias: set, interacted: set, non_interacted: set
-):
-    # Validate: each set should be distinct
+) -> None:
+    """Validate that the lists for each covariate type are distinct, i.e.,
+    no covariate is listed as multiple types
+
+    Parameters
+    ----------
+    bias
+        List of bias covariates
+    interacted
+        List of interacted model covariates
+    non_interacted
+        List of non-interacted model covariates
+
+    Returns
+    -------
+    ValueError if a covariate is present in more than one list
+    """
     cov_sets = {
         "bias": bias,
         "interacted": interacted,
@@ -1448,8 +1422,20 @@ def _validate_distinct_cov_sets(
             )
 
 
-def _validate_covs_in_data(df: DataFrame, covs: set):
-    # Validate: all covs in settings are present in data
+def _validate_covs_in_data(df: DataFrame, covs: set) -> None:
+    """Validate that all covariates in the settings are present in the data
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    covs
+        Set of all covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a covariate is included in settings but not found in data
+    """
     covs_missing_from_df = covs - set(df.columns)
     if covs_missing_from_df:
         raise ValueError(
@@ -1457,29 +1443,70 @@ def _validate_covs_in_data(df: DataFrame, covs: set):
         )
 
 
-def _validate_binary_bias_covs(df: DataFrame, bias_covs: set):
-    # Validate: all bias covariates should be binary
+def _validate_binary_bias_covs(df: DataFrame, bias_covs: set) -> None:
+    """Validate that all bias covariates are binary
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    bias_covs
+        Set of all bias covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a bias covariate is not binary
+    """
     for cov in bias_covs:
         unique_vals = df[cov].unique()
         if not set(unique_vals).issubset({0, 1}):
             raise ValueError(f"Bias covariate '{cov}' is not binary")
 
 
-def _validate_preselected_subset_bias(pre_selected_covs: set, bias_covs: set):
-    # Validate: any pre-selected covs are present in the list of bias covariates
+def _validate_preselected_subset_bias(
+    pre_selected_covs: set, bias_covs: set
+) -> None:
+    """Validate that all pre-selected covariates are contained in bias covariate list
+
+    Parameters
+    ----------
+    pre_selected_covs
+        Pre-selected bias covariates to include in the model
+    bias_covs
+        Set of all possible bias covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a pre-selected bias cov is not found in list of all bias covariates
+    """
     assert pre_selected_covs <= bias_covs, (
         f"pre_selected_covs must be a subset of bias_covs, but had additional non-bias covariates: "
         f"{pre_selected_covs - bias_covs}"
     )
 
 
-def _find_covs_to_remove(df: DataFrame, all_covs: set):
+def _find_covs_to_remove(df: DataFrame, all_covs: set) -> set:
+    """Find and remove covariates that are nearly identical (all or all-but-one value the same)
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    all_covs
+        Set of all covariates listed in settings file
+
+    Returns
+    -------
+    set
+        Set of covariates with low variability to remove from data and settings files
+    """
     # Identify covariates to be removed: all or all-but-one of the same value
     covs_to_remove = set()
     for col in all_covs:
         counts = df[col].value_counts()
         if counts.iloc[0] >= len(df[col]) - 1:
             covs_to_remove.add(col)
+    return covs_to_remove
 
 
 # def plot_signal_model(
