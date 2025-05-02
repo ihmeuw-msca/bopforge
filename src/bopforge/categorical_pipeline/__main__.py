@@ -76,7 +76,7 @@ def fit_signal_model(result_folder: Path) -> None:
     all_settings = dataif.load_result("settings.yaml")
     summary = dataif.load_result("summary.yaml")
 
-    signal_model = functions.get_signal_model(all_settings, df, summary)
+    signal_model = functions.get_signal_model(df, all_settings, summary)
     signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
 
     df = functions.add_cols(df, signal_model)
@@ -110,7 +110,7 @@ def select_bias_covs(result_folder: Path) -> None:
     cov_finder_linear_model = dataif.load_result("signal_model.pkl")
 
     cov_finder = functions.get_cov_finder(
-        all_settings, settings, cov_finder_linear_model, df
+        df, all_settings, settings, cov_finder_linear_model
     )
     cov_finder.select_covs(verbose=True)
 
@@ -158,7 +158,7 @@ def fit_linear_model(result_folder: Path) -> None:
     )
 
     summary = functions.get_linear_model_summary(
-        all_settings, settings, summary, df, cat_coefs, pair_coefs
+        df, all_settings, settings, summary, cat_coefs, pair_coefs
     )
 
     df_cleaned = df.loc[:, ~df.columns.str.startswith("interacted_")]
@@ -168,12 +168,11 @@ def fit_linear_model(result_folder: Path) -> None:
     )
 
     fig = functions.plot_linear_model(
+        df,
         name,
         summary,
-        df,
         cat_coefs,
         pair_coefs,
-        show_ref=all_settings["figure"]["show_ref"],
     )
 
     dataif.dump_result(linear_model, "linear_model.pkl")
