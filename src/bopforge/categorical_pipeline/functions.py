@@ -406,7 +406,7 @@ def get_cat_coefs(
             "beta": beta,
         }
     )
-    # Subset to betas for categories only
+    # Subset to betas for exposure categories only (no covariates)
     beta_cats = beta_info[beta_info["cov_name"].str.startswith("cat_")].copy()
     beta_cats["cat"] = beta_cats["cov_name"].str.removeprefix("cat_")
 
@@ -574,6 +574,65 @@ def get_pairwise_beta_var(
     return var_df[["pair_standardized", "inner_beta_sd"]]
 
 
+def get_scores(pair_info: DataFrame) -> DataFrame:
+    """Calculate UIs, logBPRF, and scores for pairwise comparisons
+
+    Parameters
+    ----------
+     pair_info
+        Dataframe containing pairwise betas and inner/outer beta SDs
+
+    Returns
+    -------
+    DataFrame
+        Updated pair_info dataframe with UIs, logBPRF, and scores appended
+    """
+    sign = np.sign(pair_info["beta"])
+    pair_info = pair_info.assign(
+        inner_ui_lower=pair_info["beta"] - 1.96 * pair_info["inner_beta_sd"],
+        inner_ui_upper=pair_info["beta"] + 1.96 * pair_info["inner_beta_sd"],
+        outer_ui_lower=pair_info["beta"] - 1.96 * pair_info["outer_beta_sd"],
+        outer_ui_upper=pair_info["beta"] + 1.96 * pair_info["outer_beta_sd"],
+        log_bprf=pair_info["beta"] - sign * 1.645 * pair_info["outer_beta_sd"],
+    )
+    signed_bprf = sign * pair_info["log_bprf"]
+    product = np.prod(pair_info[["inner_ui_lower", "inner_ui_upper"]], axis=1)
+    pair_info["score"] = np.where(product < 0, float("nan"), 0.5 * signed_bprf)
+
+    return pair_info
+
+
+def assign_star_rating(score: float | pd.Series) -> int | np.ndarray:
+    """Takes in score or series of scores and returns associated star rating(s)
+
+    Parameters
+    ----------
+    score
+        risk outcome scores, either pairwise comparisons (as a pandas Series)
+        or a single float (for combined scores)
+
+    Returns
+    -------
+    int or numpy ndarray
+        Associated star rating (numpy ndarray for pairwise or int for combined)
+    """
+    score_bounds = [
+        np.isnan(score),
+        score > np.log(1 + 0.85),
+        score > np.log(1 + 0.5),
+        score > np.log(1 + 0.15),
+        score > 0,
+    ]
+    ratings = [0, 5, 4, 3, 2]
+    star_rating = np.select(score_bounds, ratings, default=1)
+
+    # If score is scalar float (combined) return a scalar int
+    if isinstance(score, (float, int)):
+        return int(star_rating.item())
+    # If multiple scores (i.e., pairwise scores) return array as-is
+    return star_rating
+
+
 def get_pair_info(
     settings: dict,
     summary: dict,
@@ -664,63 +723,26 @@ def get_pair_info(
         + 2 * cat_pairs["gamma_sd"]
     )
     # Subset to just the relevant columns
-    cat_pairs_subset = cat_pairs[
-        [
-            "ref_risk_cat",
-            "alt_risk_cat",
-            "pair",
-            "beta_adjusted",
-            "inner_beta_sd",
-            "outer_beta_sd",
-            "gamma",
-            "gamma_sd",
-        ]
-    ].rename(columns={"beta_adjusted": "beta"})
+    cat_pairs_subset = cat_pairs.drop(columns="pair_standardized").rename(
+        columns={"beta_adjusted": "beta"}
+    )
 
-    sign = np.sign(cat_pairs_subset["beta"])
-    cat_pairs_subset = cat_pairs_subset.assign(
-        inner_ui_lower=cat_pairs_subset["beta"]
-        - 1.96 * cat_pairs_subset["inner_beta_sd"],
-        inner_ui_upper=cat_pairs_subset["beta"]
-        + 1.96 * cat_pairs_subset["inner_beta_sd"],
-        outer_ui_lower=cat_pairs_subset["beta"]
-        - 1.96 * cat_pairs_subset["outer_beta_sd"],
-        outer_ui_upper=cat_pairs_subset["beta"]
-        + 1.96 * cat_pairs_subset["outer_beta_sd"],
-        log_bprf=cat_pairs_subset["beta"]
-        - sign * 1.645 * cat_pairs_subset["outer_beta_sd"],
-    )
-    signed_bprf = sign * cat_pairs_subset["log_bprf"]
-    product = np.prod(
-        cat_pairs_subset[["inner_ui_lower", "inner_ui_upper"]], axis=1
-    )
-    cat_pairs_subset["score"] = np.where(
-        product < 0, float("nan"), 0.5 * signed_bprf
-    )
-    score_bounds = [
-        np.isnan(cat_pairs_subset["score"]),
-        cat_pairs_subset["score"] > np.log(1 + 0.85),
-        cat_pairs_subset["score"] > np.log(1 + 0.5),
-        cat_pairs_subset["score"] > np.log(1 + 0.15),
-        cat_pairs_subset["score"] > 0,
-    ]
-    ratings = [0, 5, 4, 3, 2]
-    cat_pairs_subset["star_rating"] = np.select(
-        score_bounds, ratings, default=1
+    # Calculate UIs, logBPRF, and scores
+    cat_pairs_subset = get_scores(cat_pairs_subset)
+    # Add star ratings
+    cat_pairs_subset["star_rating"] = assign_star_rating(
+        cat_pairs_subset["score"]
     )
     # Subset dataset to only original ref-alt comparisons if ordinal categories
+    # Check first that categories in cat_order match those in data
     cat_order = settings["cat_order"]
+    _validate_cat_order(cat_order, cats)
     if not cat_order:
         cat_pairs_subset = cat_pairs_subset
     else:
-        if sorted(cat_order) != sorted(cats.tolist()):
-            raise ValueError(
-                f"Error: cat_order does not match the expected categories. Expected: {cats}, but got: {cat_order}"
-            )
-        else:
-            cat_pairs_subset = cat_pairs_subset[
-                cat_pairs_subset["pair"].str.contains(ref_cat)
-            ]
+        cat_pairs_subset = cat_pairs_subset[
+            cat_pairs_subset["pair"].str.contains(ref_cat)
+        ]
     cat_pairs_subset.sort_values(by="beta", ascending=False, inplace=True)
 
     return cat_pairs_subset
@@ -773,39 +795,31 @@ def get_linear_model_summary(
     summary["star_rating"] = dict(
         zip(pair_coefs["pair"], pair_coefs["star_rating"])
     )
-    # Output combined score and star rating if ordinal categories
+
     cat_order = all_settings["cat_order"]
+    # Output combined score and star rating: max score if non-ordinal,
+    # 'averaged' score if ordinal categories
     if cat_order:
-        if sorted(cat_order) != sorted(cats.tolist()):
-            raise ValueError(
-                f"Error: cat_order does not match the expected categories. Expected: {cats}, but got: {cat_order}"
-            )
+        if np.any(np.isnan(pair_coefs["score"])):
+            summary["combined_score"] = float("nan")
         else:
-            if np.any(np.isnan(pair_coefs["score"])):
-                summary["combined_score"] = float("nan")
-                summary["combined_star_rating"] = 0
-            else:
-                sign = np.sign(pair_coefs["beta"])
-                signed_bprf = sign * pair_coefs["log_bprf"]
-                max_idx = signed_bprf.idxmax()
-                score = float(
-                    (1 / len(alt_cats))
-                    * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
-                )
-                summary["combined_score"] = score
-                # Assign star rating based on ROS
-                if np.isnan(score):
-                    summary["combined_star_rating"] = 0
-                elif score > np.log(1 + 0.85):
-                    summary["combined_star_rating"] = 5
-                elif score > np.log(1 + 0.50):
-                    summary["combined_star_rating"] = 4
-                elif score > np.log(1 + 0.15):
-                    summary["combined_star_rating"] = 3
-                elif score > 0:
-                    summary["combined_star_rating"] = 2
-                else:
-                    summary["combined_star_rating"] = 1
+            sign = np.sign(pair_coefs["beta"])
+            signed_bprf = sign * pair_coefs["log_bprf"]
+            max_idx = signed_bprf.abs().idxmax()
+            score = float(
+                (1 / len(alt_cats))
+                * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
+            )
+            summary["combined_score"] = score
+        summary["combined_star_rating"] = assign_star_rating(score)
+        summary["category_type"] = "ordinal"
+    else:
+        max_idx = pair_coefs["score"].idxmax()
+        summary["combined_score"] = float(pair_coefs.loc[max_idx, "score"])
+        summary["combined_star_rating"] = int(
+            pair_coefs.loc[max_idx, "star_rating"]
+        )
+        summary["category_type"] = "non-ordinal"
 
     # compute the publication bias
     index = df.is_outlier == 0
@@ -1005,7 +1019,6 @@ def plot_linear_model(
     _plot_data(
         df,
         name,
-        summary,
         pair_coefs,
         ax[0],
     )
@@ -1044,7 +1057,7 @@ def plot_linear_model(
     # Add star ratings as text labels
     for _, row in pair_coefs.iterrows():
         stars = row["star_rating"]
-        label = "★" * int(stars) if stars > 0 else "0"
+        label = "★" * int(stars) if stars > 0 else "☆"
         ax[0].text(
             x_text_pos,
             row["y_mid"],
@@ -1054,7 +1067,9 @@ def plot_linear_model(
             fontsize=10,
             color="black",
         )
-    ax[0].set_xlim(xlim[0], x_text_pos + 0.12 * (xlim[1] - xlim[0]))
+    ax[0].set_xlim(
+        xlim[0], x_text_pos + max_label_length * char_spacing + 2 * char_spacing
+    )
 
     # plot funnel
     _plot_funnel(df, summary, cat_coefs, ax[1])
@@ -1369,6 +1384,29 @@ def _plot_funnel(
     ax.set_ylabel("residual sd")
 
     return ax
+
+
+def _validate_cat_order(cat_order: list, cats: pd.Series) -> None:
+    """Validate that the category list matches the list of fitted categories.
+    Should be provided for ordinal categories only.
+
+    Parameters
+    ----------
+    cat_order
+        list of all risk exposure categories provided in cat_order setting
+    cats
+        risk exposure categories extracted from dataset
+
+    Returns
+    -------
+    ValueError if user-provided list of categories does not match the categories in the data
+    """
+    if cat_order:
+        if sorted(cat_order) != sorted(cats.tolist()):
+            raise ValueError(
+                f"Error: cat_order does not match the expected categories. "
+                f"Expected: {sorted(cats.tolist())}, but got: {sorted(cat_order)}"
+            )
 
 
 def _validate_distinct_cov_sets(
