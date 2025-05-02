@@ -142,7 +142,6 @@ def get_signal_model(settings: dict, df: DataFrame, summary: dict) -> MRBRT:
     -------
     MRBRT
         Signal model to access the strength of the prior on the bias-covariate.
-
     """
     ref_cat = summary["ref_cat"]
     signal_model_settings = settings["fit_signal_model"]
@@ -219,9 +218,7 @@ def add_cols(df: DataFrame, signal_model: MRBRT) -> DataFrame:
     -------
     DataFrame
         DataFrame with additional columns of oulier indicator.
-
     """
-
     data = signal_model.data
     is_outlier = (signal_model.w_soln < 0.1).astype(int)
     df = df.merge(
@@ -252,12 +249,10 @@ def get_cov_finder(
     df
         Dataframe containing training data with column indicating outliers
 
-
     Returns
     -------
     CovFinder
         The instance of the CovFinder class.
-
     """
     data_signal = cov_finder_linear_model.data
     cats = cov_finder_linear_model.cov_models[0].cats
@@ -344,7 +339,6 @@ def get_cov_finder_result(
     -------
     dict
         Result summary for bias covariate selection.
-
     """
     beta_info = get_beta_info(cov_finder_linear_model, cov_name=None)
     cats = cov_finder_linear_model.cov_models[0].cats
@@ -385,9 +379,7 @@ def get_cat_coefs(
     -------
     tuple[DataFrame]
         Dataframe of beta, gamma, gamma_sd for each category
-
     """
-
     lt = model.lt
 
     # Extract betas for categories and covariates, ensuring correct matching
@@ -449,7 +441,6 @@ def get_linear_model(
     -------
     MRBRT
         The linear model for effect.
-
     """
     ref_cat = settings["fit_signal_model"]["cat_cov_model"]["ref_cat"]
     col_covs = cov_finder_result["selected_covs"]
@@ -516,14 +507,16 @@ def get_linear_model(
 
 
 def hess_subset(matrix, i):
-    """
-    Remove the ith row and ith column from the Hessian.
+    """Remove the ith row and ith column from the Hessian to create the
+    sub-matrix of the Hessian for use in calculating pairwise beta variance
 
-    Parameters:
+    Parameters
+    ----------
     matrix (numpy.ndarray): Hessian
     i (int): The index of the row and column to remove.
 
-    Returns:
+    Returns
+    -------
     numpy.ndarray: The (n-1) x (n-1) sub-Hessian.
     """
     return np.delete(np.delete(matrix, i, axis=0), i, axis=1)
@@ -533,6 +526,16 @@ def get_pairwise_beta_var(
     hessian: np.ndarray, cat_names: list[str]
 ) -> pd.DataFrame:
     """Calculate beta_sd for pairwise comparisons using submatrices of the Hessian.
+    Removing the i'th row and column of the Hessian allows us to directly invert
+    the resulting sub-Hessian (no longer singular) to get the approximated
+    covariance matrix sigma_i, where the diagonal elements sigma_i_{jj} are the
+    variance of category j given category i as reference. Repeating for each
+    row/column gives us the full set of variances for each category with respect
+    to all other categories; variance of category j with respect to category i
+    is the same as variance of category i with respect to category j; i.e., the
+    variance is category order-invariant. This function extracts the diagonals
+    of each sub-Hessian and stores only the unique pair-variance combinations to
+    obtain the full set of pairwise variances/standard deviations of beta.
 
     Parameters
     ----------
@@ -545,7 +548,6 @@ def get_pairwise_beta_var(
     -------
     DataFrame
         Dataframe containing pairwise beta standard deviations.
-
     """
     n_cats = len(cat_names)
     pair_variances = []
@@ -574,7 +576,7 @@ def get_pair_info(
     cat_coefs: DataFrame,
     linear_model: MRBRT,
 ) -> tuple[DataFrame]:
-    """Returns pairwise comparisons.
+    """Returns pairwise comparisons and parameters.
 
     Parameters
     ----------
@@ -592,7 +594,6 @@ def get_pair_info(
     dict
         Dataframe containing pairwise beta, gamma, their standard deviations,
         and summary outputs.
-
     """
     # load summary
     ref_cat = summary["ref_cat"]
@@ -750,7 +751,6 @@ def get_linear_model_summary(
     -------
     dict
         Summary file contains all necessary information.
-
     """
     # load summary
     summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
@@ -842,7 +842,6 @@ def get_draws(
     -------
     tuple[DataFrame, DataFrame]
         Inner and outer draw files.
-
     """
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
@@ -906,9 +905,7 @@ def get_quantiles(
     -------
     tuple[DataFrame, DataFrame]
         Inner and outer quantile files.
-
     """
-
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
@@ -993,7 +990,6 @@ def plot_linear_model(
     -------
     Figure
         The figure object for linear model.
-
     """
     offset = 0.05
     pair_coefs = pair_coefs.copy()
@@ -1086,7 +1082,6 @@ def plot_linear_panel_model(
     -------
     Figure
         The figure object for linear model.
-
     """
     offset = 0.05
 
@@ -1265,7 +1260,6 @@ def _plot_data(
     -------
     Axes
         Return the axes back for further plotting.
-
     """
     np.random.seed(0)
 
@@ -1332,7 +1326,6 @@ def _plot_funnel(
     summary: dict, cat_coefs: DataFrame, df: DataFrame, ax: Axes
 ) -> Axes:
     """Plot the funnel plot
-
     Parameters
     ----------
     summary
@@ -1348,9 +1341,7 @@ def _plot_funnel(
     -------
     Axes
         Return the axes back for further plotting.
-
     """
-
     # add residual information
     beta = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
     gamma = summary["gamma"]
@@ -1401,8 +1392,23 @@ def _plot_funnel(
 
 def _validate_distinct_cov_sets(
     bias: set, interacted: set, non_interacted: set
-):
-    # Validate: each set should be distinct
+) -> None:
+    """Validate that the lists for each covariate type are distinct, i.e.,
+    no covariate is listed as multiple types
+
+    Parameters
+    ----------
+    bias
+        List of bias covariates
+    interacted
+        List of interacted model covariates
+    non_interacted
+        List of non-interacted model covariates
+
+    Returns
+    -------
+    ValueError if a covariate is present in more than one list
+    """
     cov_sets = {
         "bias": bias,
         "interacted": interacted,
@@ -1416,8 +1422,20 @@ def _validate_distinct_cov_sets(
             )
 
 
-def _validate_covs_in_data(df: DataFrame, covs: set):
-    # Validate: all covs in settings are present in data
+def _validate_covs_in_data(df: DataFrame, covs: set) -> None:
+    """Validate that all covariates in the settings are present in the data
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    covs
+        Set of all covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a covariate is included in settings but not found in data
+    """
     covs_missing_from_df = covs - set(df.columns)
     if covs_missing_from_df:
         raise ValueError(
@@ -1425,23 +1443,63 @@ def _validate_covs_in_data(df: DataFrame, covs: set):
         )
 
 
-def _validate_binary_bias_covs(df: DataFrame, bias_covs: set):
-    # Validate: all bias covariates should be binary
+def _validate_binary_bias_covs(df: DataFrame, bias_covs: set) -> None:
+    """Validate that all bias covariates are binary
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    bias_covs
+        Set of all bias covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a bias covariate is not binary
+    """
     for cov in bias_covs:
         unique_vals = df[cov].unique()
         if not set(unique_vals).issubset({0, 1}):
             raise ValueError(f"Bias covariate '{cov}' is not binary")
 
 
-def _validate_preselected_subset_bias(pre_selected_covs: set, bias_covs: set):
-    # Validate: any pre-selected covs are present in the list of bias covariates
+def _validate_preselected_subset_bias(
+    pre_selected_covs: set, bias_covs: set
+) -> None:
+    """Validate that all pre-selected covariates are contained in bias covariate list
+
+    Parameters
+    ----------
+    pre_selected_covs
+        Pre-selected bias covariates to include in the model
+    bias_covs
+        Set of all possible bias covariates listed in settings file
+
+    Returns
+    -------
+    ValueError if a pre-selected bias cov is not found in list of all bias covariates
+    """
     assert pre_selected_covs <= bias_covs, (
         f"pre_selected_covs must be a subset of bias_covs, but had additional non-bias covariates: "
         f"{pre_selected_covs - bias_covs}"
     )
 
 
-def _find_covs_to_remove(df: DataFrame, all_covs: set):
+def _find_covs_to_remove(df: DataFrame, all_covs: set) -> set:
+    """Find and remove covariates that are nearly identical (all or all-but-one value the same)
+
+    Parameters
+    ----------
+    df
+        Input dataframe
+    all_covs
+        Set of all covariates listed in settings file
+
+    Returns
+    -------
+    set
+        Set of covariates with low variability to remove from data and settings files
+    """
     # Identify covariates to be removed: all or all-but-one of the same value
     covs_to_remove = set()
     for col in all_covs:
