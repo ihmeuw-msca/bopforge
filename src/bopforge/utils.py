@@ -105,6 +105,33 @@ def get_signal(signal_model: MRBeRT, risk: np.ndarray) -> np.ndarray:
     )
 
 
+def score_to_star_rating(score: float) -> int:
+    """Takes in risk outcome score(s) and returns associated star rating(s)
+
+    Parameters
+    ----------
+    score
+        risk outcome scores
+
+    Returns
+    -------
+    int
+        Associated star rating
+    """
+    if np.isnan(score):
+        return 0
+    elif score > np.log(1 + 0.85):
+        return 5
+    elif score > np.log(1 + 0.5):
+        return 4
+    elif score > np.log(1 + 0.15):
+        return 3
+    elif score > 0:
+        return 2
+    else:
+        return 1
+
+
 class ParseKwargs(argparse.Action):
     def __call__(
         self,

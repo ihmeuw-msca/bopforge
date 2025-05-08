@@ -9,7 +9,7 @@ from mrtool import MRBRT, CovFinder, LinearCatCovModel, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
 
-from bopforge.utils import get_beta_info
+from bopforge.utils import get_beta_info, score_to_star_rating
 
 
 def covariate_preprocessing(
@@ -506,7 +506,7 @@ def get_linear_model(
     return model
 
 
-def hess_subset(matrix: np.ndarray, i: int) -> np.ndarray:
+def hess_subset(matrix: np.typing.NDArray, i: int) -> np.ndarray:
     """Remove the ith row and ith column from the Hessian to create the
     sub-matrix of the Hessian for use in calculating pairwise beta variance
 
@@ -579,7 +579,7 @@ def get_scores(pair_info: DataFrame) -> DataFrame:
 
     Parameters
     ----------
-     pair_info
+    pair_info
         Dataframe containing pairwise betas and inner/outer beta SDs
 
     Returns
@@ -600,37 +600,6 @@ def get_scores(pair_info: DataFrame) -> DataFrame:
     pair_info["score"] = np.where(product < 0, float("nan"), 0.5 * signed_bprf)
 
     return pair_info
-
-
-def assign_star_rating(score: float | pd.Series) -> int | np.ndarray:
-    """Takes in score or series of scores and returns associated star rating(s)
-
-    Parameters
-    ----------
-    score
-        risk outcome scores, either pairwise comparisons (as a pandas Series)
-        or a single float (for combined scores)
-
-    Returns
-    -------
-    int or numpy ndarray
-        Associated star rating (numpy ndarray for pairwise or int for combined)
-    """
-    score_bounds = [
-        np.isnan(score),
-        score > np.log(1 + 0.85),
-        score > np.log(1 + 0.5),
-        score > np.log(1 + 0.15),
-        score > 0,
-    ]
-    ratings = [0, 5, 4, 3, 2]
-    star_rating = np.select(score_bounds, ratings, default=1)
-
-    # If score is scalar float (combined) return a scalar int
-    if isinstance(score, (float, int)):
-        return int(star_rating.item())
-    # If multiple scores (i.e., pairwise scores) return array as-is
-    return star_rating
 
 
 def get_pair_info(
@@ -730,8 +699,8 @@ def get_pair_info(
     # Calculate UIs, logBPRF, and scores
     cat_pairs_subset = get_scores(cat_pairs_subset)
     # Add star ratings
-    cat_pairs_subset["star_rating"] = assign_star_rating(
-        cat_pairs_subset["score"]
+    cat_pairs_subset["star_rating"] = cat_pairs_subset["score"].apply(
+        score_to_star_rating
     )
     # Subset dataset to only original ref-alt comparisons if ordinal categories
     # Check first that categories in cat_order match those in data
@@ -811,7 +780,7 @@ def get_linear_model_summary(
                 * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
             )
             summary["combined_score"] = score
-        summary["combined_star_rating"] = assign_star_rating(score)
+        summary["combined_star_rating"] = score_to_star_rating(score)
         summary["category_type"] = "ordinal"
     else:
         max_idx = pair_coefs["score"].idxmax()
