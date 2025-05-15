@@ -1,3 +1,4 @@
+import itertools
 from itertools import combinations
 from typing import Optional, Tuple
 
@@ -703,9 +704,7 @@ def get_pair_info(
         score_to_star_rating
     )
     # Subset dataset to only original ref-alt comparisons if ordinal categories
-    # Check first that categories in cat_order match those in data
     cat_order = settings["cat_order"]
-    _validate_cat_order(cat_order, cats)
     if not cat_order:
         cat_pairs_subset = cat_pairs_subset
     else:
@@ -748,7 +747,6 @@ def get_linear_model_summary(
         Summary file contains all necessary information.
     """
     # load summary
-    summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
     ref_cat = summary["ref_cat"]
     cats = cat_coefs["cat"]
     alt_cats = [cat for cat in cats if cat != ref_cat]
@@ -1471,6 +1469,45 @@ def _validate_preselected_subset_bias(
         f"pre_selected_covs must be a subset of bias_covs, but had additional non-bias covariates: "
         f"{pre_selected_covs - bias_covs}"
     )
+
+
+def _validate_cat_order_prior_order_match(
+    cat_order: list, prior_order: list
+) -> list:
+    """Validate for ordinal categories that cat_order and prior_order,
+    if provided, match. If prior_order is not set for ordinal categories, then
+    fill prior_order with cat_order. If cat_order is not provided (non-ordinal),
+    function returns existing prior_order setting as-is.
+
+    Parameters
+    ----------
+    cat_order
+        Setting containing complete list of ordered categories for ordinal risks.
+        Must be provided for ordinal categories, will be empty for non-ordinal categories.
+    prior_order
+        Setting containing list of prior ordering for the categories. May be empty.
+        For ordinal categories, cat_order and prior_order must match if both are provided.
+
+    Returns
+    -------
+    ValueError
+        If both cat_order and prior_order are provided but do not match.
+    list
+        Validated or inferred prior_order.
+    """
+    if cat_order:
+        if prior_order:
+            flat_prior = list(itertools.chain.from_iterable(prior_order))
+            if cat_order != flat_prior:
+                raise ValueError(
+                    f"cat_order implies an ordinal structure but differs from prior_order:\n"
+                    f"cat_order: {cat_order}\nprior_order: {prior_order}"
+                )
+            # If they do match, proceed
+        else:
+            # If prior_order is not specified, set using provided cat_order
+            prior_order = [list(cat_order)]
+    return prior_order
 
 
 def _find_covs_to_remove(df: DataFrame, all_covs: set) -> set:
