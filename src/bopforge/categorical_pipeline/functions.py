@@ -1473,11 +1473,9 @@ def _validate_preselected_subset_bias(
 
 def _validate_cat_order_prior_order_match(
     cat_order: list, prior_order: list
-) -> list:
-    """Validate for ordinal categories that cat_order and prior_order,
-    if provided, match. If prior_order is not set for ordinal categories, then
-    fill prior_order with cat_order. If cat_order is not provided (non-ordinal),
-    function returns existing prior_order setting as-is.
+) -> None:
+    """For ordinal categories (cat_order provided), if prior_order is specified,
+    validate that cat_order and prior_order match exactly.
 
     Parameters
     ----------
@@ -1490,24 +1488,17 @@ def _validate_cat_order_prior_order_match(
 
     Returns
     -------
-    ValueError
-        If both cat_order and prior_order are provided but do not match.
-    list
-        Validated or inferred prior_order.
+    ValueError if both cat_order and prior_order are provided but do not match.
     """
     if cat_order:
         if prior_order:
             flat_prior = list(itertools.chain.from_iterable(prior_order))
             if cat_order != flat_prior:
+                # If cat_order does not match prior_order, raise error
                 raise ValueError(
                     f"cat_order implies an ordinal structure but differs from prior_order:\n"
                     f"cat_order: {cat_order}\nprior_order: {prior_order}"
                 )
-            # If they do match, proceed
-        else:
-            # If prior_order is not specified, set using provided cat_order
-            prior_order = [list(cat_order)]
-    return prior_order
 
 
 def _find_covs_to_remove(df: DataFrame, all_covs: set) -> set:
