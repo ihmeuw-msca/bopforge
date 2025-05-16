@@ -56,12 +56,6 @@ def pre_processing(result_folder: Path) -> None:
     functions._validate_cat_order(cat_order, unique_cats)
     # For ordinal categories, if prior_order is given validate it matches cat_order
     functions._validate_cat_order_prior_order_match(cat_order, prior_order)
-    # prior_order = functions._validate_cat_order_prior_order_match(
-    #     cat_order, prior_order
-    # )
-    # all_settings["fit_signal_model"]["cat_cov_model"]["prior_order"] = (
-    #     prior_order
-    # )
 
     # save results
     dataif.dump_result(df, f"{name}.csv")
