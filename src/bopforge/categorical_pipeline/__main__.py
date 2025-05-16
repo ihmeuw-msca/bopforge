@@ -47,6 +47,16 @@ def pre_processing(result_folder: Path) -> None:
     # Add design matrices for interacted model covariates to data
     df = functions.covariate_design_mat(df, all_settings)
 
+    # Validate ordering constraints if categories are ordinal
+    cat_order = all_settings["cat_order"]
+    prior_order = all_settings["fit_signal_model"]["cat_cov_model"][
+        "prior_order"
+    ]
+    # Check cat_order is complete
+    functions._validate_cat_order(cat_order, unique_cats)
+    # For ordinal categories, if prior_order is given validate it matches cat_order
+    functions._validate_cat_order_prior_order_match(cat_order, prior_order)
+
     # save results
     dataif.dump_result(df, f"{name}.csv")
     dataif.dump_result(all_settings, "settings.yaml")
