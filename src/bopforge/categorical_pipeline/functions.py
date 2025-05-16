@@ -1,5 +1,4 @@
-import itertools
-from itertools import combinations
+from itertools import chain, combinations
 from typing import Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -1492,7 +1491,7 @@ def _validate_cat_order_prior_order_match(
     """
     if cat_order:
         if prior_order:
-            flat_prior = list(itertools.chain.from_iterable(prior_order))
+            flat_prior = list(chain.from_iterable(prior_order))
             if cat_order != flat_prior:
                 # If cat_order does not match prior_order, raise error
                 raise ValueError(
