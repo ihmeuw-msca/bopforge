@@ -3,12 +3,14 @@ from typing import Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from bopforge.utils import get_beta_info, get_gamma_info, get_signal
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, LogCovModel, MRBeRT, MRData
 from mrtool.core.utils import sample_knots
 from pandas import DataFrame
+from scipy.interpolate import interp1d, make_interp_spline
 from scipy.stats import norm
+
+from bopforge.utils import get_beta_info, get_gamma_info, get_signal
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
@@ -556,8 +558,24 @@ def get_quantiles(
         risk_upper = summary["risk_bounds"][1]
     else:
         risk_upper = settings["draws"]["risk_upper"]
-    risk = np.linspace(risk_lower, risk_upper, settings["draws"]["num_points"])
-    signal = get_signal(signal_model, risk)
+    num_points = settings["draws"]["num_points"]
+    risk = np.linspace(risk_lower, risk_upper, num_points)
+    risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
+    signal_from_data = get_signal(signal_model, risk_from_data)
+    # Build interpolator with linear extrapolation
+    # method 1
+    signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
+    # method 2 – interp1d is legacy, maybe don't want to use?
+    # signal_interp = interp1d(
+    #     risk_from_data,
+    #     signal_from_data,
+    #     kind="linear",
+    #     fill_value="extrapolate",
+    #     bounds_error=False,
+    #     assume_sorted=True,
+    # )
+    # Calculate extrapolated signal
+    signal = signal_interp(risk)
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
