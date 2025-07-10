@@ -496,8 +496,14 @@ def get_draws(
         risk_upper = summary["risk_bounds"][1]
     else:
         risk_upper = settings["draws"]["risk_upper"]
-    risk = np.linspace(risk_lower, risk_upper, settings["draws"]["num_points"])
-    signal = get_signal(signal_model, risk)
+    num_points = settings["draws"]["num_points"]
+    risk = np.linspace(risk_lower, risk_upper, num_points)
+    risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
+    signal_from_data = get_signal(signal_model, risk_from_data)
+    # Build interpolator with linear extrapolation
+    signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
+    # Calculate extrapolated signal
+    signal = signal_interp(risk)
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
