@@ -503,7 +503,15 @@ def get_draws(
     # Build interpolator with linear extrapolation
     signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
     # Calculate extrapolated signal
-    signal = signal_interp(risk)
+    signal_extrapolated = signal_interp(risk)
+    mask_left = risk < risk_from_data[0]
+    mask_right = risk > risk_from_data[-1]
+    mask_middle = ~(mask_left | mask_right)
+    signal = np.empty_like(risk)
+    signal[mask_left] = signal_extrapolated[mask_left]
+    signal[mask_middle] = get_signal(signal_model, risk[mask_middle])
+    signal[mask_right] = signal_extrapolated[mask_right]
+    # signal = signal_interp(risk)
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
@@ -569,19 +577,17 @@ def get_quantiles(
     risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
     signal_from_data = get_signal(signal_model, risk_from_data)
     # Build interpolator with linear extrapolation
-    # method 1
     signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
-    # method 2 – interp1d is legacy, maybe don't want to use?
-    # signal_interp = interp1d(
-    #     risk_from_data,
-    #     signal_from_data,
-    #     kind="linear",
-    #     fill_value="extrapolate",
-    #     bounds_error=False,
-    #     assume_sorted=True,
-    # )
     # Calculate extrapolated signal
-    signal = signal_interp(risk)
+    signal_extrapolated = signal_interp(risk)
+    mask_left = risk < risk_from_data[0]
+    mask_right = risk > risk_from_data[-1]
+    mask_middle = ~(mask_left | mask_right)
+    signal = np.empty_like(risk)
+    signal[mask_left] = signal_extrapolated[mask_left]
+    signal[mask_middle] = get_signal(signal_model, risk[mask_middle])
+    signal[mask_right] = signal_extrapolated[mask_right]
+    # signal = signal_interp(risk)
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
