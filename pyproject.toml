@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bopforge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pipelines for Burden of Proof (BoP) analyses"
 readme = "REDME.md"
 requires-python = ">=3.10"
