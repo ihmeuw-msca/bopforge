@@ -9,7 +9,11 @@ from mrtool import MRBRT, CovFinder, LinearCatCovModel, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
 
-from bopforge.utils import get_beta_info, score_to_star_rating
+from bopforge.utils import (
+    _validate_required_quantiles,
+    get_beta_info,
+    score_to_star_rating,
+)
 
 
 def covariate_preprocessing(
@@ -897,6 +901,7 @@ def get_quantiles(
     cat_pairs = np.array(pair_coefs["pair"])[:, None]
     coefs = np.array(beta_info)
     quantiles = np.asarray(settings["draws"]["quantiles"])
+    quantiles = _validate_required_quantiles(quantiles)
     inner_beta_quantiles = [
         norm.ppf(
             quantiles,

@@ -8,7 +8,7 @@ import numpy as np
 from pplkit.data.interface import DataInterface
 
 import bopforge.continuous_pipeline.functions as functions
-from bopforge.utils import ParseKwargs, fill_dict
+from bopforge.utils import ParseKwargs, fill_dict, get_point_estimate_and_UIs
 
 warnings.filterwarnings("ignore")
 
@@ -165,6 +165,10 @@ def fit_linear_model(dataif: DataInterface) -> None:
         settings, summary, signal_model
     )
 
+    df_summary = get_point_estimate_and_UIs(
+        df_inner_quantiles, df_outer_quantiles
+    )
+
     fig = functions.plot_linear_model(
         name,
         summary,
@@ -180,6 +184,7 @@ def fit_linear_model(dataif: DataInterface) -> None:
     dataif.dump_result(df_outer_draws, "outer_draws.csv")
     dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
     dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
+    dataif.dump_result(df_summary, "summary_estimates.csv")
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
