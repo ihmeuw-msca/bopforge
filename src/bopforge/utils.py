@@ -160,13 +160,15 @@ def get_point_estimate_and_UIs(
     ]
 
     df_summary = inner_quantiles[risk_cols].copy()
-    df_summary["log_point_estimate"] = inner_quantiles[0.5]
-    df_summary["outer_log_UI_lower"] = outer_quantiles[0.025]
-    df_summary["inner_log_UI_lower"] = inner_quantiles[0.025]
-    df_summary["inner_log_UI_upper"] = inner_quantiles[0.975]
-    df_summary["outer_log_UI_upper"] = outer_quantiles[0.975]
+    df_summary["log_point_estimate"] = inner_quantiles["0.5"]
+    df_summary["outer_log_UI_lower"] = outer_quantiles["0.025"]
+    df_summary["inner_log_UI_lower"] = inner_quantiles["0.025"]
+    df_summary["inner_log_UI_upper"] = inner_quantiles["0.975"]
+    df_summary["outer_log_UI_upper"] = outer_quantiles["0.975"]
     pred = df_summary["log_point_estimate"]
-    log_bprf = np.where(pred > 0, outer_quantiles[0.05], outer_quantiles[0.95])
+    log_bprf = np.where(
+        pred > 0, outer_quantiles["0.05"], outer_quantiles["0.95"]
+    )
     df_summary["log_bprf"] = log_bprf
 
     log_col_names = [col for col in df_summary.columns if "log_" in col]
@@ -190,7 +192,7 @@ def _validate_required_quantiles(
     ----------
     user_quantiles: array
         Quantiles specified by the user in the settings.yaml file
-    required_quantiles: list of floats
+    required_quantiles: list
         Quantiles that must (also) be included for final summary outputs. Default
         is [0.025, 0.05, 0.5, 0.95, 0.975] corresponding to lower UI bound, BPRF
         (if harmful), point estimate, BPRF (if protective), upper UI bound.

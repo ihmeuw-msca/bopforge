@@ -898,54 +898,33 @@ def get_quantiles(
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
     # get quantiles
-    cat_pairs = np.array(pair_coefs["pair"])[:, None]
     coefs = np.array(beta_info)
     quantiles = np.asarray(settings["draws"]["quantiles"])
     quantiles = _validate_required_quantiles(quantiles)
-    inner_beta_quantiles = [
-        norm.ppf(
-            quantiles,
-            loc=coefs[:, None],
-            scale=np.array(inner_beta_sd)[:, None],
-        ),
-    ]
+    inner_beta_quantiles = norm.ppf(
+        quantiles,
+        loc=coefs[:, None],
+        scale=np.array(inner_beta_sd)[:, None],
+    )
     inner_beta_quantiles = np.vstack(inner_beta_quantiles)
-    outer_beta_quantiles = [
-        norm.ppf(
-            quantiles,
-            loc=coefs[:, None],
-            scale=np.array(outer_beta_sd)[:, None],
-        ),
-    ]
+    outer_beta_quantiles = norm.ppf(
+        quantiles,
+        loc=coefs[:, None],
+        scale=np.array(outer_beta_sd)[:, None],
+    )
     outer_beta_quantiles = np.vstack(outer_beta_quantiles)
     df_inner_quantiles = pd.DataFrame(
-        np.hstack(
-            [
-                np.array(pair_coefs["ref_risk_cat"])[:, None],
-                np.array(pair_coefs["alt_risk_cat"])[:, None],
-                cat_pairs,
-                inner_beta_quantiles,
-            ]
-        ),
-        columns=["ref_risk_cat"]
-        + ["alt_risk_cat"]
-        + ["risk_cat_pair"]
-        + list(map(str, quantiles)),
+        inner_beta_quantiles, columns=list(map(str, quantiles))
     )
+    df_inner_quantiles.insert(0, "risk_cat_pair", pair_coefs["pair"])
+    df_inner_quantiles.insert(0, "alt_risk_cat", pair_coefs["alt_risk_cat"])
+    df_inner_quantiles.insert(0, "ref_risk_cat", pair_coefs["ref_risk_cat"])
     df_outer_quantiles = pd.DataFrame(
-        np.hstack(
-            [
-                np.array(pair_coefs["ref_risk_cat"])[:, None],
-                np.array(pair_coefs["alt_risk_cat"])[:, None],
-                cat_pairs,
-                outer_beta_quantiles,
-            ]
-        ),
-        columns=["ref_risk_cat"]
-        + ["alt_risk_cat"]
-        + ["risk_cat_pair"]
-        + list(map(str, quantiles)),
+        outer_beta_quantiles, columns=list(map(str, quantiles))
     )
+    df_outer_quantiles.insert(0, "risk_cat_pair", pair_coefs["pair"])
+    df_outer_quantiles.insert(0, "alt_risk_cat", pair_coefs["alt_risk_cat"])
+    df_outer_quantiles.insert(0, "ref_risk_cat", pair_coefs["ref_risk_cat"])
 
     return df_inner_quantiles, df_outer_quantiles
 
