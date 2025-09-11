@@ -178,9 +178,9 @@ def get_point_estimate_and_UIs(
 
 
 def _validate_required_quantiles(
-    user_quantiles: list[float],
+    user_quantiles: np.ndarray,
     required_quantiles: list[float] = [0.025, 0.05, 0.5, 0.95, 0.975],
-) -> list[float]:
+) -> np.ndarray:
     """Ensure that the user-specified quantiles from settings.yaml include the
     required quantiles to generate the point estimate (mean), 95% UIs, and BPRF.
     If any of these required quantiles are missing, they will be added to the
@@ -188,7 +188,7 @@ def _validate_required_quantiles(
 
     Parameters
     ----------
-    user_quantiles: list of floats
+    user_quantiles: array
         Quantiles specified by the user in the settings.yaml file
     required_quantiles: list of floats
         Quantiles that must (also) be included for final summary outputs. Default
@@ -197,10 +197,11 @@ def _validate_required_quantiles(
 
     Returns
     -------
-    Sorted list of quantiles, including all required quantiles, as a list of floats
+    Sorted array of quantiles, including all required quantiles.
     """
-    all_quantiles = set(user_quantiles) | set(required_quantiles)
-    return sorted(all_quantiles)
+    user_list = user_quantiles.tolist()
+    all_quantiles = set(user_list) | set(required_quantiles)
+    return np.array(sorted(all_quantiles), dtype=float)
 
 
 class ParseKwargs(argparse.Action):
