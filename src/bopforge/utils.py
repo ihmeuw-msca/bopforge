@@ -155,9 +155,7 @@ def get_point_estimate_and_UIs(
         BPRF, all in both log and linear space.
     """
     risk_col_options = ["risk", "ref_risk_cat", "alt_risk_cat", "risk_cat_pair"]
-    risk_cols = [
-        col for col in risk_col_options if col in inner_quantiles.columns
-    ]
+    risk_cols = inner_quantiles.columns.intersection(risk_col_options).to_list()
 
     df_summary = inner_quantiles[risk_cols].copy()
     df_summary["log_point_estimate"] = inner_quantiles["0.5"]
@@ -181,7 +179,6 @@ def get_point_estimate_and_UIs(
 
 def _validate_required_quantiles(
     user_quantiles: np.ndarray,
-    required_quantiles: list[float] = [0.025, 0.05, 0.5, 0.95, 0.975],
 ) -> np.ndarray:
     """Ensure that the user-specified quantiles from settings.yaml include the
     required quantiles to generate the point estimate (mean), 95% UIs, and BPRF.
@@ -192,16 +189,13 @@ def _validate_required_quantiles(
     ----------
     user_quantiles: array
         Quantiles specified by the user in the settings.yaml file
-    required_quantiles: list
-        Quantiles that must (also) be included for final summary outputs. Default
-        is [0.025, 0.05, 0.5, 0.95, 0.975] corresponding to lower UI bound, BPRF
-        (if harmful), point estimate, BPRF (if protective), upper UI bound.
 
     Returns
     -------
     Sorted array of quantiles, including all required quantiles.
     """
     user_list = user_quantiles.tolist()
+    required_quantiles = (0.025, 0.05, 0.5, 0.95, 0.975)
     all_quantiles = set(user_list) | set(required_quantiles)
     return np.array(sorted(all_quantiles), dtype=float)
 
