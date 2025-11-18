@@ -6,6 +6,7 @@ import argparse
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
 
 
@@ -130,6 +131,73 @@ def score_to_star_rating(score: float) -> int:
         return 2
     else:
         return 1
+
+
+def get_point_estimate_and_UIs(
+    inner_quantiles: pd.DataFrame, outer_quantiles: pd.DataFrame
+) -> pd.DataFrame:
+    """Get the point estimate, inner and outer UIs, and BPRF in log and linear
+    space for a single combined summary file
+
+    Parameters
+    ----------
+    inner_quantiles : DataFrame
+        Inner quantiles csv file containing point estimate and 95% traditional
+        UIs (all log space)
+    outer_quantiles : DataFrame
+        Outer quantiles csv file containing point estimate, 95% UIs with between-
+        study heterogeneity, and the BPRF (all log space)
+
+    Returns
+    -------
+    DataFrame
+        Combined dataframe with point estimate, inner and outer 95% UIs, and
+        BPRF, all in both log and linear space.
+    """
+    risk_col_options = ["risk", "ref_risk_cat", "alt_risk_cat", "risk_cat_pair"]
+    risk_cols = inner_quantiles.columns.intersection(risk_col_options).to_list()
+
+    df_summary = inner_quantiles[risk_cols].copy()
+    df_summary["log_point_estimate"] = inner_quantiles["0.5"]
+    df_summary["outer_log_UI_lower"] = outer_quantiles["0.025"]
+    df_summary["inner_log_UI_lower"] = inner_quantiles["0.025"]
+    df_summary["inner_log_UI_upper"] = inner_quantiles["0.975"]
+    df_summary["outer_log_UI_upper"] = outer_quantiles["0.975"]
+    pred = df_summary["log_point_estimate"]
+    log_bprf = np.where(
+        pred > 0, outer_quantiles["0.05"], outer_quantiles["0.95"]
+    )
+    df_summary["log_bprf"] = log_bprf
+
+    log_col_names = [col for col in df_summary.columns if "log_" in col]
+    for log_col in log_col_names:
+        linear_col_name = log_col.replace("log_", "linear_")
+        df_summary[linear_col_name] = np.exp(df_summary[log_col])
+
+    return df_summary
+
+
+def _validate_required_quantiles(
+    user_quantiles: np.ndarray,
+) -> np.ndarray:
+    """Ensure that the user-specified quantiles from settings.yaml include the
+    required quantiles to generate the point estimate (mean), 95% UIs, and BPRF.
+    If any of these required quantiles are missing, they will be added to the
+    list of generated quantiles.
+
+    Parameters
+    ----------
+    user_quantiles: array
+        Quantiles specified by the user in the settings.yaml file
+
+    Returns
+    -------
+    Sorted array of quantiles, including all required quantiles.
+    """
+    user_list = user_quantiles.tolist()
+    required_quantiles = (0.025, 0.05, 0.5, 0.95, 0.975)
+    all_quantiles = set(user_list) | set(required_quantiles)
+    return np.array(sorted(all_quantiles), dtype=float)
 
 
 class ParseKwargs(argparse.Action):

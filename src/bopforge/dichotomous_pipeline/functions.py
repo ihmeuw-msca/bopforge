@@ -6,7 +6,11 @@ from mrtool import MRBRT, CovFinder, LinearCovModel, MRData
 from pandas import DataFrame
 from scipy.stats import norm
 
-from bopforge.utils import get_beta_info, get_gamma_info
+from bopforge.utils import (
+    _validate_required_quantiles,
+    get_beta_info,
+    get_gamma_info,
+)
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBRT:
@@ -354,20 +358,22 @@ def get_quantiles(
     outer_beta_sd = np.sqrt(
         beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1]
     )
+    quantiles = np.asarray(settings["draws"]["quantiles"])
+    quantiles = _validate_required_quantiles(quantiles)
     inner_beta_quantiles = norm.ppf(
-        settings["draws"]["quantiles"], loc=beta_info[0], scale=inner_beta_sd
+        quantiles, loc=beta_info[0], scale=inner_beta_sd
     )
     outer_beta_quantiles = norm.ppf(
-        settings["draws"]["quantiles"], loc=beta_info[0], scale=outer_beta_sd
+        quantiles, loc=beta_info[0], scale=outer_beta_sd
     )
 
     df_inner_quantiles = pd.DataFrame(
         inner_beta_quantiles[None, :],
-        columns=[str(q) for q in settings["draws"]["quantiles"]],
+        columns=[str(q) for q in quantiles],
     )
     df_outer_quantiles = pd.DataFrame(
         outer_beta_quantiles[None, :],
-        columns=[str(q) for q in settings["draws"]["quantiles"]],
+        columns=[str(q) for q in quantiles],
     )
 
     return df_inner_quantiles, df_outer_quantiles

@@ -10,7 +10,12 @@ from pandas import DataFrame
 from scipy.interpolate import interp1d, make_interp_spline
 from scipy.stats import norm
 
-from bopforge.utils import get_beta_info, get_gamma_info, get_signal
+from bopforge.utils import (
+    _validate_required_quantiles,
+    get_beta_info,
+    get_gamma_info,
+    get_signal,
+)
 
 
 def get_signal_model(settings: dict, df: DataFrame) -> MRBeRT:
@@ -594,6 +599,7 @@ def get_quantiles(
     )
     # get quantiles
     quantiles = np.asarray(settings["draws"]["quantiles"])
+    quantiles = _validate_required_quantiles(quantiles)
     signal_sign_index = np.zeros(signal.size, dtype=int)
     signal_sign_index[signal < 0] = 1
     inner_beta_quantiles = [
