@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import traceback
 import warnings
 from argparse import ArgumentParser
@@ -225,11 +226,12 @@ def run(
 
     # fit each pair
     failed_pairs = []
+    SEP_LEN = 60
     for pair in pairs:
         # Indicate which pair is being modeled
-        print(f"\n" + "=" * 60)
+        print("\n" + "=" * SEP_LEN)
         print(f"MODELING PAIR: {pair}")
-        print("=" * 60)
+        print("=" * SEP_LEN)
 
         pair_o_dir = o_dir / pair
         pair_o_dir.mkdir(parents=True, exist_ok=True)
@@ -256,12 +258,12 @@ def run(
                     print(f"    [SUCCESS] Finished {action}.")
                 except Exception as e:
                     tb_str = traceback.format_exc()
-                    print(f"\n" + "!" * 60)
-                    print(f"FAILURE during pair: {pair}")
-                    print(f"Action: {action}")
-                    print(f"Error Type: {type(e).__name__}")
-                    print(f"Error Details: {str(e)}")
-                    print("!" * 60 + "\n")
+                    print("\n" + "!" * SEP_LEN, file=sys.stderr)
+                    print(f"FAILURE during pair: {pair}", file=sys.stderr)
+                    print(f"Action: {action}", file=sys.stderr)
+                    print(f"Error Type: {type(e).__name__}", file=sys.stderr)
+                    print(f"Error Details: {str(e)}", file=sys.stderr)
+                    print("!" * SEP_LEN + "\n", file=sys.stderr)
                     # Recored failed model fitting and break pair's action loop
                     failed_pairs.append(
                         {
@@ -274,25 +276,34 @@ def run(
                     break
         except Exception as e:
             # Catching issues that happen before actions (e.g., file copying or settings)
-            print(f"An error occurred during setup for pair '{pair}': {e}")
+            print(
+                f"An error occurred during setup for pair '{pair}': {e}",
+                file=sys.stderr,
+            )
             failed_pairs.append(
                 {"pair": pair, "action": "setup", "error": str(e)}
             )
             continue
 
     # --- FINAL PIPELINE SUMMARY ---
-    print(f"\n" + "#" * 60)
+    print("\n" + "#" * SEP_LEN)
     print("PIPELINE EXECUTION SUMMARY")
-    print("#" * 60)
+    print("#" * SEP_LEN)
     print(f"Total pairs processed: {len(pairs)}")
     print(f"Successfully completed: {len(pairs) - len(failed_pairs)}")
     print(f"Failed/Skipped: {len(failed_pairs)}")
 
     if failed_pairs:
-        print("\nStage of Failures:")
-        for failure in failed_pairs:
-            print(f"  - {failure['pair']} at {failure['action']}")
-    print("#" * 60 + "\n")
+        err_msg = "\n".join(
+            ["Stage of Failures:"]
+            + [
+                f" - {failure['pair']} at {failure['action']}"
+                for failure in failed_pairs
+            ]
+        )
+        print("#" * SEP_LEN + "\n")
+        raise RuntimeError(err_msg)
+    print("#" * SEP_LEN + "\n")
 
 
 def main(args=None) -> None:
