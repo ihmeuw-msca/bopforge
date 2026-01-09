@@ -13,6 +13,7 @@ from bopforge.utils import (
     _validate_required_quantiles,
     get_beta_info,
     get_gamma_info,
+    get_risk_bounds,
     get_signal,
 )
 
@@ -408,7 +409,7 @@ def get_linear_model_summary(
 
     # compute the score and add star rating
     risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk)
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     pred = signal * beta_info[0]
     inner_ui = np.vstack(
@@ -470,79 +471,6 @@ def get_linear_model_summary(
     return summary
 
 
-def get_signal_vector(
-    settings: dict,
-    summary: dict,
-    signal_model: MRBeRT,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute risk grid and signal, including any extrapolation or truncation,
-    for use in generating draws and quantiles for the linear model.
-
-    Parameters
-    ----------
-    settings
-        Settings for complete the summary.
-    summary
-        Completed summary file.
-    signal_model
-        Fitted signal model for risk curve.
-
-    Returns
-    -------
-    tuple[NDArray, NDArray]
-        Risk values, derived from data or risk_lower/risk_upper settings if provided,
-        and signal over the defined risk values, accounting for any extrapolation
-        or truncation to guarantee the signal is identical to original signal
-        predicted over the data-supported range.
-    """
-    data_risk_lower, data_risk_upper = summary["risk_bounds"]
-    if settings["draws"]["risk_lower"] is None:
-        risk_lower = data_risk_lower
-    else:
-        risk_lower = settings["draws"]["risk_lower"]
-    if settings["draws"]["risk_upper"] is None:
-        risk_upper = data_risk_upper
-    else:
-        risk_upper = settings["draws"]["risk_upper"]
-    num_points = settings["draws"]["num_points"]
-    risk = np.linspace(risk_lower, risk_upper, num_points)
-    # Reference signal over data-supported region
-    risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
-    signal_from_data = get_signal(signal_model, risk_from_data)
-    mask_left = risk < data_risk_lower
-    mask_right = risk > data_risk_upper
-    mask_middle = ~(mask_left | mask_right)
-    signal = np.empty_like(risk)
-    signal[mask_middle] = get_signal(signal_model, risk[mask_middle])
-    # Extrapolate: use point-slope to have smooth continuity
-    # Calculate slope at the boundaries of data-supported region
-    if mask_left.any():
-        slope_left = (signal_from_data[1] - signal_from_data[0]) / (
-            risk_from_data[1] - risk_from_data[0]
-        )
-        # Anchor the line precisely at the first point of the middle segment
-        signal[mask_left] = signal[mask_middle][0] + slope_left * (
-            risk[mask_left] - risk[mask_middle][0]
-        )
-    if mask_right.any():
-        slope_right = (signal_from_data[-1] - signal_from_data[-2]) / (
-            risk_from_data[-1] - risk_from_data[-2]
-        )
-        # Anchor the line precisely at the last point of the middle segment
-        signal[mask_right] = signal[mask_middle][-1] + slope_right * (
-            risk[mask_right] - risk[mask_middle][-1]
-        )
-    # If left bound is truncated, get original signal precisely at truncated risk value
-    # and offset curve appropriately
-    if risk_lower > data_risk_lower:
-        risk_with_trunc_bound = np.sort(np.append(risk_from_data, risk_lower))
-        idx = np.where(risk_with_trunc_bound == risk_lower)[0][0]
-        signal_at_bound = get_signal(signal_model, risk_with_trunc_bound)[idx]
-        signal += signal_at_bound
-
-    return risk, signal
-
-
 def get_draws(
     settings: dict,
     summary: dict,
@@ -565,7 +493,8 @@ def get_draws(
         Inner and outer draw files.
 
     """
-    risk, signal = get_signal_vector(settings, summary, signal_model)
+    risk_vector, risk_bounds = get_risk_bounds(settings, summary)
+    risk, signal = get_signal(signal_model, risk_vector, *risk_bounds)
 
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
@@ -619,7 +548,8 @@ def get_quantiles(
         Inner and outer quantile files.
 
     """
-    risk, signal = get_signal_vector(settings, summary, signal_model)
+    risk_vector, risk_bounds = get_risk_bounds(settings, summary)
+    risk, signal = get_signal(signal_model, risk_vector, *risk_bounds)
 
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
@@ -701,7 +631,7 @@ def plot_signal_model(
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk)
     if summary["normalize_to_tmrel"]:
         signal -= signal.min()
     ax.plot(risk, signal, color="#008080")
@@ -752,7 +682,7 @@ def plot_linear_model(
     beta = summary["beta"]
     gamma = summary["gamma"]
     risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk)
 
     inner_beta_sd = beta[1]
     outer_beta_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2 * gamma[1])
@@ -845,7 +775,7 @@ def _plot_data(
     # shift data position normalize to tmrel
     if summary["normalize_to_tmrel"]:
         risk = np.linspace(*summary["risk_bounds"], 100)
-        signal = get_signal(signal_model, risk)
+        _, signal = get_signal(signal_model, risk)
         if linear_model is not None:
             signal *= linear_model.beta_soln[0]
         ref_ln_rr -= signal.min()
