@@ -27,6 +27,6 @@ default:
   complete_summary:
     # draws configuration
     draws:
-      num_draws: 1000
+      num_draws: 250
       # additional quantiles for accurate estimation of quantiles rather than rely on draws
       quantiles: [0.025, 0.05, 0.5, 0.95, 0.975]
