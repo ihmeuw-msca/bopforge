@@ -86,7 +86,18 @@ def fit_signal_model(result_folder: Path) -> None:
     summary = dataif.load_result("summary.yaml")
 
     signal_model = functions.get_signal_model(df, all_settings, summary)
-    signal_model.fit_model(outer_step_size=200, outer_max_iter=100)
+    settings = all_settings["fit_signal_model"]
+    default_signal_model_fit_model = {
+        "outer_step_size": 10.0,
+        "outer_max_iter": 100,
+        "inner_options": {"gtol": 1e-6, "xtol": 1e-6},
+    }
+    signal_model.fit_model(
+        **fill_dict(
+            settings.get("signal_model_fit_model", {}),
+            default_signal_model_fit_model,
+        )
+    )
 
     df = functions.add_cols(df, signal_model)
 

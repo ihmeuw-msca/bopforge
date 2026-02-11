@@ -20,6 +20,8 @@ default:
     signal_model:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
+    signal_model_fit_model:
+      outer_step_size: 10.0
   select_bias_covs:
     cov_finder:
       # please put the pre-selected bias covariates in list
