@@ -3,26 +3,25 @@ Ultility functions
 """
 
 import argparse
-from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
 
 
-def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
+def fill_dict(des_dict: dict, default_dict: dict) -> dict:
     """Fill given dictionary by the default dictionary.
 
     Parameters
     ----------
-    des_dict : Dict
+    des_dict : dict
         Given dictionary that needs to be filled.
-    default_dict : Dict
+    default_dict : dict
         Default dictionary
 
     Returns
     -------
-    Dict
+    dict
         Updated dictionary.
     """
     for key, value in default_dict.items():
@@ -35,7 +34,7 @@ def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
 
 def get_beta_info(
     model: MRBRT, cov_name: str | None = "signal"
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Get the posterior information of beta.
 
     Parameters
@@ -47,7 +46,7 @@ def get_beta_info(
 
     Returns
     -------
-    Tuple[float, float]
+    tuple[float, float]
         Return the mean and standard deviation of the corresponding beta.
     """
     lt = model.lt
@@ -63,7 +62,7 @@ def get_beta_info(
     return (beta, beta_sd)
 
 
-def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
+def get_gamma_info(model: MRBRT) -> tuple[float, float]:
     """Get the posterior information of gamma.
 
     Parameters
@@ -74,7 +73,7 @@ def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
 
     Returns
     -------
-    Tuple[float, float]
+    tuple[float, float]
         Return the mean and standard deviation of the corresponding gamma.
     """
     lt = model.lt
@@ -206,7 +205,7 @@ class ParseKwargs(argparse.Action):
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
         values: list[str],
-        option_string: Optional[str] = None,
+        option_string: str | None = None,
     ):
         """Parse keyword arguments into a dictionary. Be sure to set `nargs='*'`
         in the ArgumentParser to parse the input as a list of strings, otherwise
