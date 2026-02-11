@@ -35,7 +35,7 @@ def fill_dict(des_dict: dict, default_dict: dict) -> dict:
 
 def get_beta_info(
     model: MRBRT, cov_name: str | None = "signal"
-) -> tuple[float, float]:
+) -> tuple[float | npt.NDArray, float | npt.NDArray]:
     """Get the posterior information of beta.
 
     Parameters
