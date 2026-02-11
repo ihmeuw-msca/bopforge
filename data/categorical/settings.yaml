@@ -12,7 +12,7 @@ default:
     # signal model settings, contains configurations for the exposure categories
     cat_cov_model:
       # reference exposure category, default is most common category in the data
-      ref_cat: 
+      ref_cat:
       # priors for categories (in increasing order)
       # e.g., [risk_cat_1, risk_cat_2] corresponds to the logRR for risk_cat_1 <= risk_cat_2
       # complete or partial orderings may be provided
