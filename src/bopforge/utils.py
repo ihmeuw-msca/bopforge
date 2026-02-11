@@ -5,6 +5,7 @@ Ultility functions
 import argparse
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
 
@@ -83,14 +84,14 @@ def get_gamma_info(model: MRBRT) -> tuple[float, float]:
     return (gamma, gamma_sd)
 
 
-def get_signal(signal_model: MRBeRT, risk: np.ndarray) -> np.ndarray:
+def get_signal(signal_model: MRBeRT, risk: npt.NDArray) -> npt.NDArray:
     """Get signal from signal_model
 
     Parameters
     ----------
     signal_model : MRBeRT
         Signal model object.
-    risk : np.ndarray
+    risk : npt.NDArray
         Risk exposures that we want to create signal on.
     """
     return signal_model.predict(
@@ -177,8 +178,8 @@ def get_point_estimate_and_UIs(
 
 
 def _validate_required_quantiles(
-    user_quantiles: np.ndarray,
-) -> np.ndarray:
+    user_quantiles: npt.NDArray,
+) -> npt.NDArray:
     """Ensure that the user-specified quantiles from settings.yaml include the
     required quantiles to generate the point estimate (mean), 95% UIs, and BPRF.
     If any of these required quantiles are missing, they will be added to the
