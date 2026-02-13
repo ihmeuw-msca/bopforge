@@ -398,9 +398,6 @@ def get_linear_model_summary(
         Summary file contains all necessary information.
 
     """
-    # load summary
-    summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
-
     # solution of the final model
     beta_info = get_beta_info(linear_model)
     gamma_info = get_gamma_info(linear_model)
@@ -408,8 +405,11 @@ def get_linear_model_summary(
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
     # compute the score and add star rating
-    risk = np.linspace(*summary["risk_bounds"], 100)
-    _, signal = get_signal(signal_model, risk, tuple(summary["risk_bounds"]))
+    data_bounds = tuple(summary["risk_bounds"])
+    risk = np.linspace(*data_bounds, 100)
+    _, risk_bounds = get_risk_bounds(settings, summary, signal_model)
+    _, _, tmrel = risk_bounds
+    _, signal = get_signal(signal_model, risk, data_bounds, tmrel=tmrel)
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     pred = signal * beta_info[0]
     inner_ui = np.vstack(
@@ -424,11 +424,6 @@ def get_linear_model_summary(
             signal * (beta_info[0] + 1.645 * beta_sd),
         ]
     )
-    if settings["score"]["normalize_to_tmrel"]:
-        index = np.argmin(pred)
-        pred -= pred[index]
-        burden_of_proof -= burden_of_proof[:, None, index]
-        inner_ui -= inner_ui[:, None, index]
 
     index = (risk >= summary["risk_score_bounds"][0]) & (
         risk <= summary["risk_score_bounds"][1]
@@ -646,8 +641,9 @@ def plot_signal_model(
     )
 
     # plot curve
-    risk = np.linspace(*summary["risk_bounds"], 100)
-    _, signal = get_signal(signal_model, risk, tuple(summary["risk_bounds"]))
+    data_bounds = tuple(summary["risk_bounds"])
+    risk = np.linspace(*data_bounds, 100)
+    _, signal = get_signal(signal_model, risk, data_bounds)
     if summary["normalize_to_tmrel"]:
         signal -= signal.min()
     ax.plot(risk, signal, color="#008080")

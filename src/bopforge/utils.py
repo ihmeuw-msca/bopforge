@@ -8,7 +8,6 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
-from pandas import DataFrame
 
 
 def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
