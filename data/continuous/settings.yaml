@@ -8,7 +8,6 @@ diet_veg-cvd_ihd:
     cov_finder:
       pre_selected_covs: ["em_dummy"]
 
-
 default:
   # random seed
   seed: 0
@@ -24,7 +23,8 @@ default:
       spline_l_linear: False
       # if you are working with monotonic curves, choice from ["increasing", "decreasing"]
       prior_spline_monotonicity: null
-      prior_spline_maxder_gaussian: [[0.0, 0.0, 0.0, 0.0], [0.01, 0.01, 0.01, 0.001]]
+      prior_spline_maxder_gaussian:
+        [[0.0, 0.0, 0.0, 0.0], [0.01, 0.01, 0.01, 0.001]]
     # settings of how to sample knots
     knots_samples:
       # the bounds for interior knots
@@ -37,6 +37,8 @@ default:
     signal_model:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
+    signal_model_fit_model:
+      outer_step_size: 20.0
   select_bias_covs:
     # settings for covariate selection
     cov_finder:
@@ -52,9 +54,9 @@ default:
       # number of points for risk exposures, evenly distributed between the lower and upper bounds
       num_points: 100
       # number of draws
-      num_draws: 1000
+      num_draws: 250
       # additional quantiles for accurate estimation of quantiles rather than rely on draws
-      quantiles: [0.05, 0.5, 0.95]
+      quantiles: [0.025, 0.05, 0.5, 0.95, 0.975]
     score:
       # if we normalize the risk curve to the lowest point on the curve
       # for monotonic curve this is usually false
@@ -63,4 +65,3 @@ default:
   figure:
     # if we want to show the connection between the reference and alternative exposure
     show_ref: true
-

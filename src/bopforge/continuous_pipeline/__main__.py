@@ -64,10 +64,16 @@ def fit_signal_model(dataif: DataInterface) -> None:
     settings = all_settings["fit_signal_model"]
 
     signal_model = functions.get_signal_model(settings, df)
+    default_signal_model_fit_model = {
+        "outer_step_size": 20.0,
+        "outer_max_iter": 100,
+        "inner_options": {"gtol": 1e-6, "xtol": 1e-6},
+    }
     signal_model.fit_model(
-        outer_step_size=200,
-        outer_max_iter=100,
-        inner_options=dict(gtol=1e-6, xtol=1e-6),
+        **fill_dict(
+            settings.get("signal_model_fit_model", {}),
+            default_signal_model_fit_model,
+        )
     )
 
     df = functions.convert_bc_to_em(df, signal_model)

@@ -12,7 +12,7 @@ default:
     # signal model settings, contains configurations for the exposure categories
     cat_cov_model:
       # reference exposure category, default is most common category in the data
-      ref_cat: 
+      ref_cat:
       # priors for categories (in increasing order)
       # e.g., [risk_cat_1, risk_cat_2] corresponds to the logRR for risk_cat_1 <= risk_cat_2
       # complete or partial orderings may be provided
@@ -20,6 +20,8 @@ default:
     signal_model:
       # trimming settings, inlier percentage default to be 90%, if you don't want to trim, use 1.0
       inlier_pct: 0.9
+    signal_model_fit_model:
+      outer_step_size: 20.0
   select_bias_covs:
     cov_finder:
       # please put the pre-selected bias covariates in list
@@ -27,6 +29,6 @@ default:
   complete_summary:
     # draws configuration
     draws:
-      num_draws: 1000
+      num_draws: 250
       # additional quantiles for accurate estimation of quantiles rather than rely on draws
       quantiles: [0.025, 0.05, 0.5, 0.95, 0.975]

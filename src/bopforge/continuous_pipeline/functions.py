@@ -1,5 +1,3 @@
-from typing import Optional
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -733,8 +731,8 @@ def _plot_data(
     summary: dict,
     df: DataFrame,
     ax: Axes,
-    signal_model: MRBeRT = None,
-    linear_model: Optional[MRBRT] = None,
+    signal_model: MRBeRT | None = None,
+    linear_model: MRBRT | None = None,
     show_ref: bool = True,
 ) -> Axes:
     """Plot data points
