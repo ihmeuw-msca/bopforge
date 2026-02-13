@@ -221,7 +221,7 @@ def get_signal(
     # Shift curve to TMREL
     offset = 0.0
     if tmrel is not None:
-        offset = _get_signal_value(signal_model, tmrel, data_min)
+        offset = _get_signal_value(signal_model, [tmrel], data_min)
     pred -= offset
 
     return risk, pred
