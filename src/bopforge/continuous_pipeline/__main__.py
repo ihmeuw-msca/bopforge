@@ -63,7 +63,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
 
     signal_model = functions.get_signal_model(settings, df)
     default_signal_model_fit_model = {
-        "outer_step_size": 10.0,
+        "outer_step_size": 20.0,
         "outer_max_iter": 100,
         "inner_options": {"gtol": 1e-6, "xtol": 1e-6},
     }
@@ -73,9 +73,6 @@ def fit_signal_model(dataif: DataInterface) -> None:
             default_signal_model_fit_model,
         )
     )
-    import pdb
-
-    pdb.set_trace()
 
     df = functions.convert_bc_to_em(df, signal_model)
 
