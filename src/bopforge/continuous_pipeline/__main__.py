@@ -1,5 +1,7 @@
 import os
 import shutil
+import sys
+import traceback
 import warnings
 from argparse import ArgumentParser
 from pathlib import Path
@@ -229,23 +231,85 @@ def run(
         raise ValueError(f"{list(invalid_actions)} are invalid actions")
 
     # fit each pair
+    failed_pairs = []
+    SEP_LEN = 60
     for pair in pairs:
+        # Indicate which pair is being modeled
+        print("\n" + "=" * SEP_LEN)
+        print(f"MODELING PAIR: {pair}")
+        print("=" * SEP_LEN)
+
         pair_o_dir = o_dir / pair
         pair_o_dir.mkdir(parents=True, exist_ok=True)
 
-        shutil.copy(i_dir / f"{pair}.csv", pair_o_dir / f"raw-{pair}.csv")
+        try:
+            shutil.copy(i_dir / f"{pair}.csv", pair_o_dir / f"raw-{pair}.csv")
 
-        if pair not in settings:
-            pair_settings = settings["default"]
-        else:
-            pair_settings = fill_dict(settings[pair], settings["default"])
-        pair_settings["metadata"] = metadata
-        dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
+            if pair not in settings:
+                pair_settings = settings["default"]
+            else:
+                pair_settings = fill_dict(settings[pair], settings["default"])
+            pair_settings["metadata"] = metadata
+            dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
-        np.random.seed(pair_settings["seed"])
-        pair_dataif = DataInterface(result=pair_o_dir)
-        for action in actions:
-            globals()[action](pair_dataif)
+            np.random.seed(pair_settings["seed"])
+            pair_dataif = DataInterface(result=pair_o_dir)
+
+            for action in actions:
+                # Indicate which stage of the pipeline is being run
+                print(f"  > Running action: {action}...")
+                # Error handling
+                try:
+                    globals()[action](pair_dataif)
+                    print(f"    [SUCCESS] Finished {action}.")
+                except Exception as e:
+                    tb_str = traceback.format_exc()
+                    print("\n" + "!" * SEP_LEN, file=sys.stderr)
+                    print(f"FAILURE during pair: {pair}", file=sys.stderr)
+                    print(f"Action: {action}", file=sys.stderr)
+                    print(f"Error Type: {type(e).__name__}", file=sys.stderr)
+                    print(f"Error Details: {str(e)}", file=sys.stderr)
+                    print("!" * SEP_LEN + "\n", file=sys.stderr)
+                    # Recored failed model fitting and break pair's action loop
+                    failed_pairs.append(
+                        {
+                            "pair": pair,
+                            "action": action,
+                            "error": str(e),
+                            "traceback": tb_str,
+                        }
+                    )
+                    break
+        except Exception as e:
+            # Catching issues that happen before actions (e.g., file copying or settings)
+            print(
+                f"An error occurred during setup for pair '{pair}': {e}",
+                file=sys.stderr,
+            )
+            failed_pairs.append(
+                {"pair": pair, "action": "setup", "error": str(e)}
+            )
+            continue
+
+    # --- FINAL PIPELINE SUMMARY ---
+    print("\n" + "#" * SEP_LEN)
+    print("PIPELINE EXECUTION SUMMARY")
+    print("#" * SEP_LEN)
+    print(f"Total pairs processed: {len(pairs)}")
+    print(f"Successfully completed: {len(pairs) - len(failed_pairs)}")
+    print(f"Failed/Skipped: {len(failed_pairs)}")
+
+    if failed_pairs:
+        err_msg = "\n".join(
+            ["Stage of Failures:"]
+            + [
+                f" - {failure['pair']} at {failure['action']}"
+                for failure in failed_pairs
+            ]
+        )
+        print("#" * SEP_LEN + "\n")
+        raise RuntimeError(err_msg)
+    print("#" * SEP_LEN + "\n")
 
 
 def main(args=None) -> None:
