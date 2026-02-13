@@ -161,7 +161,7 @@ def get_signal(
     risk_l_linear: float | None = None,
     risk_r_linear: float | None = None,
     tmrel: float | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """Compute risk grid and final signal. Will always anchor the curve at lnRR = 0
     at the data minimum and supports linear extrapolation and truncation
 
@@ -199,26 +199,30 @@ def get_signal(
     # Extrapolation
     if risk_l_linear is not None and risk_l_linear > risk.min():
         val = _get_signal_value(signal_model, [risk_l_linear], data_min)
-        slope_l_linear = _get_signal_slope(signal_model, [data_min], data_min)
+        slope_l_linear = _get_signal_slope(
+            signal_model, [risk_l_linear], data_min
+        )
         index = risk < risk_l_linear
         pred[index] = val + slope_l_linear * (risk[index] - risk_l_linear)
     else:
         risk_l_linear = None
     if risk_r_linear is not None and risk_r_linear < risk.max():
         val = _get_signal_value(signal_model, [risk_r_linear], data_min)
-        slope_r_linear = _get_signal_slope(signal_model, [data_max], data_min)
+        slope_r_linear = _get_signal_slope(
+            signal_model, [risk_r_linear], data_min
+        )
         index = risk > risk_r_linear
-        pred[index] = val + slope_r_linear * (risk[index] - data_max)
+        pred[index] = val + slope_r_linear * (risk[index] - risk_r_linear)
     else:
         risk_r_linear = None
 
     # Shift curve to TMREL
     offset = 0.0
     if tmrel is not None:
-        offset = _get_signal_value(signal_model, [tmrel], data_min)
+        offset = _get_signal_value(signal_model, [tmrel], data_min)[0]
     pred -= offset
 
-    return risk, pred
+    return pred
 
 
 def get_risk_bounds(
