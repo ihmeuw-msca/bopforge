@@ -409,7 +409,7 @@ def get_linear_model_summary(
 
     # compute the score and add star rating
     risk = np.linspace(*summary["risk_bounds"], 100)
-    _, signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk, summary)
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     pred = signal * beta_info[0]
     inner_ui = np.vstack(
@@ -494,7 +494,10 @@ def get_draws(
 
     """
     risk_vector, risk_bounds = get_risk_bounds(settings, summary)
-    risk, signal = get_signal(signal_model, risk_vector, *risk_bounds)
+    risk_l_linear, risk_r_linear, tmrel = risk_bounds
+    risk, signal = get_signal(
+        signal_model, risk_vector, summary, risk_l_linear, risk_r_linear, tmrel
+    )
 
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
@@ -549,7 +552,10 @@ def get_quantiles(
 
     """
     risk_vector, risk_bounds = get_risk_bounds(settings, summary)
-    risk, signal = get_signal(signal_model, risk_vector, *risk_bounds)
+    risk_l_linear, risk_r_linear, tmrel = risk_bounds
+    risk, signal = get_signal(
+        signal_model, risk_vector, summary, risk_l_linear, risk_r_linear, tmrel
+    )
 
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
@@ -631,7 +637,7 @@ def plot_signal_model(
 
     # plot curve
     risk = np.linspace(*summary["risk_bounds"], 100)
-    _, signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk, summary)
     if summary["normalize_to_tmrel"]:
         signal -= signal.min()
     ax.plot(risk, signal, color="#008080")

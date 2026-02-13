@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
+from pandas import DataFrame
 
 
 def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
@@ -84,14 +85,89 @@ def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
     return (gamma, gamma_sd)
 
 
+def _get_signal_value(
+    signal_model: MRBeRT, risk: np.ndarray, ref: float
+) -> np.ndarray:
+    """Get signal from signal_model over input risk vector, anchored at given
+    reference exposure. Ref will almost always be minimum risk in data to ensure
+    risk curve is anchored at the data minimum; if curve will be normalized
+    to tmrel that will happen after signal is predicted.
+
+    Parameters
+    ----------
+    signal_model
+        Fitted signal model object.
+    risk
+        Risk exposure vector, taken to be user-defined (may be data-supported or
+        include extrapolation or truncation), that we want to create signal on
+    ref
+        Reference risk value that signal is predicted relative to
+
+    Returns
+    -------
+    ndarray
+        Predicted signal, anchored at lnRR = 0 at ref exposure value.
+    """
+    risk = np.asarray(risk)
+    signal = signal_model.predict(
+        MRData(
+            covs={
+                "ref_risk_lower": np.repeat(ref, len(risk)),
+                "ref_risk_upper": np.repeat(ref, len(risk)),
+                "alt_risk_lower": risk,
+                "alt_risk_upper": risk,
+            }
+        )
+    )
+    return signal
+
+
+def _get_signal_slope(
+    signal_model: MRBeRT,
+    data_risk_min: float,
+    data_risk_max: float,
+    dx: float | None = 1e-2,
+) -> tuple[float, float]:
+    """Get slope(s) for linear extrapolation of signal.
+
+    Parameters
+    ----------
+    signal_model
+        Fitted signal model object.
+    data_risk_min
+        Lower bound of risk from data, used to obtain data-
+        supported risk exposure range and reference risk value to anchor signal
+    data_risk_max
+        Upper bound of risk from data, used to obtain data-supported risk exposure range
+    dx
+        Optional, step size for computing slope
+
+    Returns
+    -------
+    ndarray
+        Slope for left extrapolation and right extrapolation
+    """
+    ref = data_risk_min
+    risk = np.linspace(data_risk_min, data_risk_max, 100)
+    risk_offset = risk + dx
+
+    signal = _get_signal_value(signal_model, risk, ref)
+    signal_offset = _get_signal_value(signal_model, risk_offset, ref)
+    fin_diff = (signal_offset - signal) / dx
+    slope_left = fin_diff[0]
+    slope_right = fin_diff[-1]
+    return slope_left, slope_right
+
+
 def get_signal(
     signal_model: MRBeRT,
     risk: np.ndarray,
+    summary: dict,
     risk_l_linear: float | None = None,
     risk_r_linear: float | None = None,
     tmrel: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute risk grid and signal. Will always anchor the curve at lnRR = 0
+    """Compute risk grid and final signal. Will always anchor the curve at lnRR = 0
     at the data minimum and supports linear extrapolation and truncation
 
     Parameters
@@ -101,13 +177,15 @@ def get_signal(
     risk
         Risk exposure vector, taken to be user-defined (may be data-supported or
         include extrapolation or truncation), that we want to create signal on
+    summary
+        Summary, including risk bounds from data
     risk_l_linear
         Lower risk exposure bound of data; None if no left extrapolation
     risk_r_linear
         Upper risk exposure bound of data; None if no right extrapolation
     tmrel
-        Lower risk exposure bound of data when risk.min() > min risk in data;
-        None if no left truncation
+        Risk exposure value to shift curve to re-anchor (J-shaped curve), None
+        unless normalize_to_tmrel = True in settings
 
 
     Returns
@@ -118,65 +196,41 @@ def get_signal(
         or truncation to guarantee the signal is identical to original signal
         predicted over the data-supported range.
     """
-    # Get minimum risk from data to get anchor point for lnRR=0
-    data_min = (
-        risk_l_linear
-        if risk_l_linear is not None
-        else (tmrel if tmrel is not None else risk.min())
-    )
-    # Get max risk from data and nearby points for slope calculation
-    data_max = risk_r_linear if risk_r_linear is not None else risk.max()
-    eps = (data_max - data_min) * 1e-5
-    anchor_and_slope_points = [
-        data_min,
-        data_min + eps,
-        data_max - eps,
-        data_max,
-    ]
-    risk_full = np.unique(
-        np.sort(np.concatenate([risk, anchor_and_slope_points]))
-    )
-    idx = np.searchsorted(risk_full, anchor_and_slope_points)
-    # signal_full = get_signal(signal_model, risk_full)
-    signal_full = signal_model.predict(
-        MRData(
-            covs={
-                "ref_risk_lower": np.repeat(risk_full.min(), len(risk_full)),
-                "ref_risk_upper": np.repeat(risk_full.min(), len(risk_full)),
-                "alt_risk_lower": risk_full,
-                "alt_risk_upper": risk_full,
-            }
-        )
-    )
+    # Get minimum risk from data to get reference risk value for lnRR=0
+    data_min = summary["risk_bounds"][0]
+    data_max = summary["risk_bounds"][1]
+    # Get signal over full risk vector, anchored to lnRR = 0 at data_min
+    pred = _get_signal_value(signal_model, risk, data_min)
 
-    # Handle extrapolation
-    if risk_l_linear is not None:
-        slope_left = (signal_full[idx[1]] - signal_full[idx[0]]) / eps
-        mask_left = risk_full < data_min
-        signal_full[mask_left] = signal_full[idx[0]] + slope_left * (
-            risk_full[mask_left] - data_min
-        )
-    if risk_r_linear is not None:
-        slope_right = (signal_full[idx[3]] - signal_full[idx[2]]) / eps
-        mask_right = risk_full > data_max
-        signal_full[mask_right] = signal_full[idx[3]] + slope_right * (
-            risk_full[mask_right] - data_max
-        )
+    # Extrapolation
+    if risk_l_linear is not None and risk_l_linear > risk.min():
+        val = _get_signal_value(signal_model, [risk_l_linear], data_min)
+        slope_l_linear, _ = _get_signal_slope(signal_model, data_min, data_max)
+        index = risk < risk_l_linear
+        pred[index] = val + slope_l_linear * (risk[index] - risk_l_linear)
+    else:
+        risk_l_linear = None
+    if risk_r_linear is not None and risk_r_linear < risk.max():
+        val = _get_signal_value(signal_model, [risk_r_linear], data_min)
+        _, slope_r_linear = _get_signal_slope(signal_model, data_min, data_max)
+        index = risk > risk_r_linear
+        pred[index] = val + slope_r_linear * (risk[index] - data_max)
+    else:
+        risk_r_linear = None
 
-    # Offset signal to re-anchor to lnRR = 0 at min risk from data
-    signal_anchor = signal_full[idx[0]]
-    signal_full -= signal_anchor
+    # Shift curve to TMREL
+    offset = 0.0
+    if tmrel is not None:
+        offset = _get_signal_value(signal_model, tmrel, data_min)
+    pred -= offset
 
-    # Return signal for original risk – handles truncation, removes data anchor and slope points
-    final_idx = np.searchsorted(risk_full, risk)
-    final_signal = signal_full[final_idx]
-
-    return risk, final_signal
+    return risk, pred
 
 
 def get_risk_bounds(
     settings: dict,
     summary: dict,
+    signal_model: MRBeRT,
 ) -> tuple[np.ndarray, list[float | None]]:
     """
     Parameters
@@ -185,28 +239,34 @@ def get_risk_bounds(
         Settings file with user-defined risk bounds.
     summary
         Summary file with data-supported risk bounds.
+    signal_model
+        Fitted signal model for calculation of tmrel
 
     Returns
     -------
     tuple[np.ndarray, list[float | None]]
         Returns an array defining the output risk grid for quantiles and draws, and
-        a list [risk_l_linear, risk_r_linear, tmrel] derived from the data and used
+        a list [risk_l_linear, risk_r_linear, tmrel] derived from the data/ and used
         to anchor/extrapolate/truncate the signal. Values are None if settings are
         equal to data-supported risk bounds.
 
     """
-    data_risk_lower, data_risk_upper = summary["risk_bounds"]
+    data_risk_min, data_risk_max = summary["risk_bounds"]
     if (risk_lower := settings["draws"]["risk_lower"]) is None:
-        risk_lower = data_risk_lower
+        risk_lower = data_risk_min
     if (risk_upper := settings["draws"]["risk_upper"]) is None:
-        risk_upper = data_risk_upper
-
+        risk_upper = data_risk_max
     num_points = settings["draws"]["num_points"]
     modeling_range = np.linspace(risk_lower, risk_upper, num_points)
 
-    risk_l_linear = data_risk_lower if risk_lower < data_risk_lower else None
-    risk_r_linear = data_risk_upper if risk_upper > data_risk_upper else None
-    tmrel = data_risk_lower if risk_lower > data_risk_lower else None
+    risk_l_linear = data_risk_min if risk_lower < data_risk_min else None
+    risk_r_linear = data_risk_max if risk_upper > data_risk_max else None
+    if summary["normalize_to_tmrel"]:
+        risk_from_data = np.linspace(data_risk_min, data_risk_max, num_points)
+        signal = _get_signal_value(signal_model, risk_from_data, data_risk_min)
+        tmrel = risk_from_data[np.argmin(signal)]
+    else:
+        tmrel = None
     modeling_bounds = [risk_l_linear, risk_r_linear, tmrel]
 
     return modeling_range, modeling_bounds
