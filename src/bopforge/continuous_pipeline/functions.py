@@ -493,7 +493,7 @@ def get_draws(
         Inner and outer draw files.
 
     """
-    risk_vector, risk_bounds = get_risk_bounds(settings, summary)
+    risk_vector, risk_bounds = get_risk_bounds(settings, summary, signal_model)
     risk_l_linear, risk_r_linear, tmrel = risk_bounds
     risk, signal = get_signal(
         signal_model, risk_vector, summary, risk_l_linear, risk_r_linear, tmrel
@@ -551,7 +551,7 @@ def get_quantiles(
         Inner and outer quantile files.
 
     """
-    risk_vector, risk_bounds = get_risk_bounds(settings, summary)
+    risk_vector, risk_bounds = get_risk_bounds(settings, summary, signal_model)
     risk_l_linear, risk_r_linear, tmrel = risk_bounds
     risk, signal = get_signal(
         signal_model, risk_vector, summary, risk_l_linear, risk_r_linear, tmrel
