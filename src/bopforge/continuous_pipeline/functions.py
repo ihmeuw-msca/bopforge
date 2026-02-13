@@ -688,7 +688,7 @@ def plot_linear_model(
     beta = summary["beta"]
     gamma = summary["gamma"]
     risk = np.linspace(*summary["risk_bounds"], 100)
-    _, signal = get_signal(signal_model, risk)
+    _, signal = get_signal(signal_model, risk, summary)
 
     inner_beta_sd = beta[1]
     outer_beta_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2 * gamma[1])
@@ -781,7 +781,7 @@ def _plot_data(
     # shift data position normalize to tmrel
     if summary["normalize_to_tmrel"]:
         risk = np.linspace(*summary["risk_bounds"], 100)
-        _, signal = get_signal(signal_model, risk)
+        _, signal = get_signal(signal_model, risk, summary)
         if linear_model is not None:
             signal *= linear_model.beta_soln[0]
         ref_ln_rr -= signal.min()
