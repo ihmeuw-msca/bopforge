@@ -47,7 +47,7 @@ def get_beta_info(
 
     Returns
     -------
-    tuple[float, float]
+    tuple[float | npt.NDArray, float | npt.NDArray]
         Return the mean and standard deviation of the corresponding beta.
     """
     lt = model.lt
