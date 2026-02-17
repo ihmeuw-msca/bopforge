@@ -88,7 +88,7 @@ def fit_signal_model(result_folder: Path) -> None:
     signal_model = functions.get_signal_model(df, all_settings, summary)
     settings = all_settings["fit_signal_model"]
     default_signal_model_fit_model = {
-        "outer_step_size": 10.0,
+        "outer_step_size": 20.0,
         "outer_max_iter": 100,
         "inner_options": {"gtol": 1e-6, "xtol": 1e-6},
     }

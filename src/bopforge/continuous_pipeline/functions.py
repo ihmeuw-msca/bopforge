@@ -5,13 +5,13 @@ from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCovModel, LogCovModel, MRBeRT, MRData
 from mrtool.core.utils import sample_knots
 from pandas import DataFrame
-from scipy.interpolate import make_interp_spline
 from scipy.stats import norm
 
 from bopforge.utils import (
     _validate_required_quantiles,
     get_beta_info,
     get_gamma_info,
+    get_risk_bounds,
     get_signal,
 )
 
@@ -396,9 +396,6 @@ def get_linear_model_summary(
         Summary file contains all necessary information.
 
     """
-    # load summary
-    summary["normalize_to_tmrel"] = settings["score"]["normalize_to_tmrel"]
-
     # solution of the final model
     beta_info = get_beta_info(linear_model)
     gamma_info = get_gamma_info(linear_model)
@@ -406,8 +403,11 @@ def get_linear_model_summary(
     summary["gamma"] = [float(gamma_info[0]), float(gamma_info[1])]
 
     # compute the score and add star rating
-    risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    data_bounds = tuple(summary["risk_bounds"])
+    risk = np.linspace(*data_bounds, 100)
+    _, risk_bounds = get_risk_bounds(settings, summary, signal_model)
+    _, _, tmrel = risk_bounds
+    signal = get_signal(signal_model, risk, data_bounds, tmrel=tmrel)
     beta_sd = np.sqrt(beta_info[1] ** 2 + gamma_info[0] + 2 * gamma_info[1])
     pred = signal * beta_info[0]
     inner_ui = np.vstack(
@@ -422,11 +422,6 @@ def get_linear_model_summary(
             signal * (beta_info[0] + 1.645 * beta_sd),
         ]
     )
-    if settings["score"]["normalize_to_tmrel"]:
-        index = np.argmin(pred)
-        pred -= pred[index]
-        burden_of_proof -= burden_of_proof[:, None, index]
-        inner_ui -= inner_ui[:, None, index]
 
     index = (risk >= summary["risk_score_bounds"][0]) & (
         risk <= summary["risk_score_bounds"][1]
@@ -491,30 +486,17 @@ def get_draws(
         Inner and outer draw files.
 
     """
-    if settings["draws"]["risk_lower"] is None:
-        risk_lower = summary["risk_bounds"][0]
-    else:
-        risk_lower = settings["draws"]["risk_lower"]
-    if settings["draws"]["risk_upper"] is None:
-        risk_upper = summary["risk_bounds"][1]
-    else:
-        risk_upper = settings["draws"]["risk_upper"]
-    num_points = settings["draws"]["num_points"]
-    risk = np.linspace(risk_lower, risk_upper, num_points)
-    risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
-    signal_from_data = get_signal(signal_model, risk_from_data)
-    # Build interpolator with linear extrapolation
-    signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
-    # Calculate extrapolated signal
-    signal_extrapolated = signal_interp(risk)
-    mask_left = risk < risk_from_data[0]
-    mask_right = risk > risk_from_data[-1]
-    mask_middle = ~(mask_left | mask_right)
-    signal = np.empty_like(risk)
-    signal[mask_left] = signal_extrapolated[mask_left]
-    signal[mask_middle] = get_signal(signal_model, risk[mask_middle])
-    signal[mask_right] = signal_extrapolated[mask_right]
-    # signal = signal_interp(risk)
+    risk, risk_bounds = get_risk_bounds(settings, summary, signal_model)
+    risk_l_linear, risk_r_linear, tmrel = risk_bounds
+    signal = get_signal(
+        signal_model,
+        risk,
+        tuple(summary["risk_bounds"]),
+        risk_l_linear,
+        risk_r_linear,
+        tmrel,
+    )
+
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
@@ -567,30 +549,17 @@ def get_quantiles(
         Inner and outer quantile files.
 
     """
-    if settings["draws"]["risk_lower"] is None:
-        risk_lower = summary["risk_bounds"][0]
-    else:
-        risk_lower = settings["draws"]["risk_lower"]
-    if settings["draws"]["risk_upper"] is None:
-        risk_upper = summary["risk_bounds"][1]
-    else:
-        risk_upper = settings["draws"]["risk_upper"]
-    num_points = settings["draws"]["num_points"]
-    risk = np.linspace(risk_lower, risk_upper, num_points)
-    risk_from_data = np.linspace(*summary["risk_bounds"], num_points)
-    signal_from_data = get_signal(signal_model, risk_from_data)
-    # Build interpolator with linear extrapolation
-    signal_interp = make_interp_spline(risk_from_data, signal_from_data, k=1)
-    # Calculate extrapolated signal
-    signal_extrapolated = signal_interp(risk)
-    mask_left = risk < risk_from_data[0]
-    mask_right = risk > risk_from_data[-1]
-    mask_middle = ~(mask_left | mask_right)
-    signal = np.empty_like(risk)
-    signal[mask_left] = signal_extrapolated[mask_left]
-    signal[mask_middle] = get_signal(signal_model, risk[mask_middle])
-    signal[mask_right] = signal_extrapolated[mask_right]
-    # signal = signal_interp(risk)
+    risk, risk_bounds = get_risk_bounds(settings, summary, signal_model)
+    risk_l_linear, risk_r_linear, tmrel = risk_bounds
+    signal = get_signal(
+        signal_model,
+        risk,
+        tuple(summary["risk_bounds"]),
+        risk_l_linear,
+        risk_r_linear,
+        tmrel,
+    )
+
     inner_beta_sd = summary["beta"][1]
     outer_beta_sd = np.sqrt(
         summary["beta"][1] ** 2 + summary["gamma"][0] + 2 * summary["gamma"][1]
@@ -670,8 +639,9 @@ def plot_signal_model(
     )
 
     # plot curve
-    risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    data_bounds = tuple(summary["risk_bounds"])
+    risk = np.linspace(*data_bounds, 100)
+    signal = get_signal(signal_model, risk, data_bounds)
     if summary["normalize_to_tmrel"]:
         signal -= signal.min()
     ax.plot(risk, signal, color="#008080")
@@ -722,7 +692,7 @@ def plot_linear_model(
     beta = summary["beta"]
     gamma = summary["gamma"]
     risk = np.linspace(*summary["risk_bounds"], 100)
-    signal = get_signal(signal_model, risk)
+    signal = get_signal(signal_model, risk, tuple(summary["risk_bounds"]))
 
     inner_beta_sd = beta[1]
     outer_beta_sd = np.sqrt(beta[1] ** 2 + gamma[0] + 2 * gamma[1])
@@ -815,7 +785,7 @@ def _plot_data(
     # shift data position normalize to tmrel
     if summary["normalize_to_tmrel"]:
         risk = np.linspace(*summary["risk_bounds"], 100)
-        signal = get_signal(signal_model, risk)
+        signal = get_signal(signal_model, risk, tuple(summary["risk_bounds"]))
         if linear_model is not None:
             signal *= linear_model.beta_soln[0]
         ref_ln_rr -= signal.min()
