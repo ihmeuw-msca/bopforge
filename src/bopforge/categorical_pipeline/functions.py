@@ -710,9 +710,9 @@ def get_pair_info(
     if not cat_order:
         cat_pairs_subset = cat_pairs_subset
     else:
-        cat_pairs_subset = cat_pairs_subset[
-            cat_pairs_subset["pair"].str.contains(ref_cat)
-        ]
+        is_ref = cat_pairs_subset["ref_risk_cat"].astype(str) == str(ref_cat)
+        is_alt = cat_pairs_subset["alt_risk_cat"].astype(str) == str(ref_cat)
+        cat_pairs_subset = cat_pairs_subset[is_ref | is_alt]
     cat_pairs_subset.sort_values(by="beta", ascending=False, inplace=True)
 
     return cat_pairs_subset
