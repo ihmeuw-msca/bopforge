@@ -770,7 +770,8 @@ def get_linear_model_summary(
     # 'averaged' score if ordinal categories
     if cat_order:
         if np.any(np.isnan(pair_coefs["score"])):
-            summary["combined_score"] = float("nan")
+            score = float("nan")
+            # summary["combined_score"] = float("nan")
         else:
             sign = np.sign(pair_coefs["beta"])
             signed_bprf = sign * pair_coefs["log_bprf"]
@@ -779,15 +780,19 @@ def get_linear_model_summary(
                 (1 / len(alt_cats))
                 * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
             )
-            summary["combined_score"] = score
+        summary["combined_score"] = score
         summary["combined_star_rating"] = score_to_star_rating(score)
         summary["category_type"] = "ordinal"
     else:
-        max_idx = pair_coefs["score"].idxmax()
-        summary["combined_score"] = float(pair_coefs.loc[max_idx, "score"])
-        summary["combined_star_rating"] = int(
-            pair_coefs.loc[max_idx, "star_rating"]
-        )
+        if pair_coefs["score"].isna().all():
+            summary["combined_score"] = float("nan")
+            summary["combined_star_rating"] = 0
+        else:
+            max_idx = pair_coefs["score"].idxmax()
+            summary["combined_score"] = float(pair_coefs.loc[max_idx, "score"])
+            summary["combined_star_rating"] = int(
+                pair_coefs.loc[max_idx, "star_rating"]
+            )
         summary["category_type"] = "non-ordinal"
 
     # compute the publication bias
