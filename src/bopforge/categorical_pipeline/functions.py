@@ -771,7 +771,6 @@ def get_linear_model_summary(
     if cat_order:
         if np.any(np.isnan(pair_coefs["score"])):
             score = float("nan")
-            # summary["combined_score"] = float("nan")
         else:
             sign = np.sign(pair_coefs["beta"])
             signed_bprf = sign * pair_coefs["log_bprf"]
