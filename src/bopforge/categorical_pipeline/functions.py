@@ -2,6 +2,7 @@ from itertools import chain, combinations
 
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from matplotlib.pyplot import Axes, Figure
 from mrtool import MRBRT, CovFinder, LinearCatCovModel, LinearCovModel, MRData
@@ -509,7 +510,7 @@ def get_linear_model(
     return model
 
 
-def hess_subset(matrix: np.typing.NDArray, i: int) -> np.ndarray:
+def hess_subset(matrix: np.typing.NDArray, i: int) -> npt.NDArray:
     """Remove the ith row and ith column from the Hessian to create the
     sub-matrix of the Hessian for use in calculating pairwise beta variance
 
@@ -522,7 +523,7 @@ def hess_subset(matrix: np.typing.NDArray, i: int) -> np.ndarray:
 
     Returns
     -------
-    np.ndarray
+    npt.NDArray
         The (n-1) x (n-1) sub-Hessian.
     """
 
@@ -530,7 +531,7 @@ def hess_subset(matrix: np.typing.NDArray, i: int) -> np.ndarray:
 
 
 def get_pairwise_beta_var(
-    hessian: np.ndarray, cat_names: list[str]
+    hessian: npt.NDArray, cat_names: list[str]
 ) -> DataFrame:
     """Calculate beta_sd for pairwise comparisons using submatrices of the Hessian.
     Removing the i'th row and column of the Hessian allows us to directly invert
