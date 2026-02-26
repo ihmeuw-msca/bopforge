@@ -711,9 +711,9 @@ def get_pair_info(
     if not cat_order:
         cat_pairs_subset = cat_pairs_subset
     else:
-        cat_pairs_subset = cat_pairs_subset[
-            cat_pairs_subset["pair"].str.contains(ref_cat)
-        ]
+        is_ref = cat_pairs_subset["ref_risk_cat"].astype(str) == str(ref_cat)
+        is_alt = cat_pairs_subset["alt_risk_cat"].astype(str) == str(ref_cat)
+        cat_pairs_subset = cat_pairs_subset[is_ref | is_alt]
     cat_pairs_subset.sort_values(by="beta", ascending=False, inplace=True)
 
     return cat_pairs_subset
@@ -771,7 +771,7 @@ def get_linear_model_summary(
     # 'averaged' score if ordinal categories
     if cat_order:
         if np.any(np.isnan(pair_coefs["score"])):
-            summary["combined_score"] = float("nan")
+            score = float("nan")
         else:
             sign = np.sign(pair_coefs["beta"])
             signed_bprf = sign * pair_coefs["log_bprf"]
@@ -780,15 +780,19 @@ def get_linear_model_summary(
                 (1 / len(alt_cats))
                 * (np.sum(signed_bprf) - 0.5 * signed_bprf[max_idx])
             )
-            summary["combined_score"] = score
+        summary["combined_score"] = score
         summary["combined_star_rating"] = score_to_star_rating(score)
         summary["category_type"] = "ordinal"
     else:
-        max_idx = pair_coefs["score"].idxmax()
-        summary["combined_score"] = float(pair_coefs.loc[max_idx, "score"])
-        summary["combined_star_rating"] = int(
-            pair_coefs.loc[max_idx, "star_rating"]
-        )
+        if pair_coefs["score"].isna().all():
+            summary["combined_score"] = float("nan")
+            summary["combined_star_rating"] = 0
+        else:
+            max_idx = pair_coefs["score"].idxmax()
+            summary["combined_score"] = float(pair_coefs.loc[max_idx, "score"])
+            summary["combined_star_rating"] = int(
+                pair_coefs.loc[max_idx, "star_rating"]
+            )
         summary["category_type"] = "non-ordinal"
 
     # compute the publication bias
@@ -834,6 +838,9 @@ def get_draws(
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
+    ids = pair_coefs[["ref_risk_cat", "alt_risk_cat", "pair"]].rename(
+        columns={"pair": "risk_cat_pair"}
+    )
     inner_beta_samples = np.random.normal(
         loc=np.array(beta_info)[:, None],
         scale=np.array(inner_beta_sd)[:, None],
@@ -844,34 +851,19 @@ def get_draws(
         scale=np.array(outer_beta_sd)[:, None],
         size=(len(beta_info), settings["draws"]["num_draws"]),
     )
-    df_inner_draws = pd.DataFrame(
-        np.hstack(
-            [
-                np.array(pair_coefs["ref_risk_cat"])[:, None],
-                np.array(pair_coefs["alt_risk_cat"])[:, None],
-                np.array(pair_coefs["pair"])[:, None],
-                inner_beta_samples,
-            ]
-        ),
-        columns=["ref_risk_cat"]
-        + ["alt_risk_cat"]
-        + ["risk_cat_pair"]
-        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    df_inner = pd.DataFrame(
+        inner_beta_samples,
+        columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+        index=ids.index,
     )
-    df_outer_draws = pd.DataFrame(
-        np.hstack(
-            [
-                np.array(pair_coefs["ref_risk_cat"])[:, None],
-                np.array(pair_coefs["alt_risk_cat"])[:, None],
-                np.array(pair_coefs["pair"])[:, None],
-                outer_beta_samples,
-            ]
-        ),
-        columns=["ref_risk_cat"]
-        + ["alt_risk_cat"]
-        + ["risk_cat_pair"]
-        + [f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+    df_inner_draws = pd.concat([ids, df_inner], axis=1)
+
+    df_outer = pd.DataFrame(
+        outer_beta_samples,
+        columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
+        index=ids.index,
     )
+    df_outer_draws = pd.concat([ids, df_outer], axis=1)
 
     return df_inner_draws, df_outer_draws
 
@@ -897,6 +889,9 @@ def get_quantiles(
     beta_info = pair_coefs["beta"]
     inner_beta_sd = pair_coefs["inner_beta_sd"]
     outer_beta_sd = pair_coefs["outer_beta_sd"]
+    ids = pair_coefs[["ref_risk_cat", "alt_risk_cat", "pair"]].rename(
+        columns={"pair": "risk_cat_pair"}
+    )
     # get quantiles
     coefs = np.array(beta_info)
     quantiles = np.asarray(settings["draws"]["quantiles"])
@@ -913,18 +908,18 @@ def get_quantiles(
         scale=np.array(outer_beta_sd)[:, None],
     )
     outer_beta_quantiles = np.vstack(outer_beta_quantiles)
-    df_inner_quantiles = pd.DataFrame(
-        inner_beta_quantiles, columns=list(map(str, quantiles))
+    df_inner = pd.DataFrame(
+        inner_beta_quantiles,
+        columns=list(map(str, quantiles)),
+        index=ids.index,
     )
-    df_inner_quantiles.insert(0, "risk_cat_pair", pair_coefs["pair"])
-    df_inner_quantiles.insert(0, "alt_risk_cat", pair_coefs["alt_risk_cat"])
-    df_inner_quantiles.insert(0, "ref_risk_cat", pair_coefs["ref_risk_cat"])
-    df_outer_quantiles = pd.DataFrame(
-        outer_beta_quantiles, columns=list(map(str, quantiles))
+    df_inner_quantiles = pd.concat([ids, df_inner], axis=1)
+    df_outer = pd.DataFrame(
+        outer_beta_quantiles,
+        columns=list(map(str, quantiles)),
+        index=ids.index,
     )
-    df_outer_quantiles.insert(0, "risk_cat_pair", pair_coefs["pair"])
-    df_outer_quantiles.insert(0, "alt_risk_cat", pair_coefs["alt_risk_cat"])
-    df_outer_quantiles.insert(0, "ref_risk_cat", pair_coefs["ref_risk_cat"])
+    df_outer_quantiles = pd.concat([ids, df_outer], axis=1)
 
     return df_inner_quantiles, df_outer_quantiles
 
