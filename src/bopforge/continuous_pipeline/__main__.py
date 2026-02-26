@@ -1,16 +1,11 @@
-import os
-import shutil
-import sys
-import traceback
 import warnings
-from argparse import ArgumentParser
 from pathlib import Path
 
-import numpy as np
 from pplkit.data.interface import DataInterface
 
 import bopforge.continuous_pipeline.functions as functions
-from bopforge.utils import ParseKwargs, fill_dict, get_point_estimate_and_UIs
+from bopforge.base_pipeline import create_argument_parser, run_pipeline
+from bopforge.utils import fill_dict, get_point_estimate_and_UIs
 
 warnings.filterwarnings("ignore")
 
@@ -200,164 +195,27 @@ def fit_linear_model(result_dir: Path) -> None:
     fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
 
 
-def run(
-    i_dir: str,
-    o_dir: str,
-    pairs: list[str],
-    actions: list[str],
-    metadata: dict,
-) -> None:
-    i_dir, o_dir = Path(i_dir), Path(o_dir)
-
-    # check the input and output folders
-    if not i_dir.exists():
-        raise FileNotFoundError("input data folder not found")
-
-    o_dir.mkdir(parents=True, exist_ok=True)
-
-    dataif = DataInterface(i_dir=i_dir, o_dir=o_dir)
-    settings = dataif.load_i_dir("settings.yaml")
-
-    # check pairs
-    all_pairs = [pair for pair in settings.keys() if pair != "default"]
-    pairs = pairs or all_pairs
-    for pair in pairs:
-        data_path = dataif.get_fpath(f"{pair}.csv", key="i_dir")
-        if not data_path.exists():
-            raise FileNotFoundError(f"Missing data file {data_path}")
-
-    # check actions
-    # TODO: might be good to use enum here
-    all_actions = ["fit_signal_model", "select_bias_covs", "fit_linear_model"]
-    actions = actions or all_actions
-    invalid_actions = set(actions) - set(all_actions)
-    if len(invalid_actions) != 0:
-        raise ValueError(f"{list(invalid_actions)} are invalid actions")
-
-    # fit each pair
-    failed_pairs = []
-    SEP_LEN = 60
-    for pair in pairs:
-        # Indicate which pair is being modeled
-        print("\n" + "=" * SEP_LEN)
-        print(f"MODELING PAIR: {pair}")
-        print("=" * SEP_LEN)
-
-        pair_o_dir = o_dir / pair
-        pair_o_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            shutil.copy(i_dir / f"{pair}.csv", pair_o_dir / f"raw-{pair}.csv")
-
-            if pair not in settings:
-                pair_settings = settings["default"]
-            else:
-                pair_settings = fill_dict(settings[pair], settings["default"])
-            pair_settings["metadata"] = metadata
-            dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
-
-            np.random.seed(pair_settings["seed"])
-
-            for action in actions:
-                # Indicate which stage of the pipeline is being run
-                print(f"  > Running action: {action}...")
-                # Error handling
-                try:
-                    globals()[action](pair_o_dir)
-                    print(f"    [SUCCESS] Finished {action}.")
-                except Exception as e:
-                    tb_str = traceback.format_exc()
-                    print("\n" + "!" * SEP_LEN, file=sys.stderr)
-                    print(f"FAILURE during pair: {pair}", file=sys.stderr)
-                    print(f"Action: {action}", file=sys.stderr)
-                    print(f"Error Type: {type(e).__name__}", file=sys.stderr)
-                    print(f"Error Details: {str(e)}", file=sys.stderr)
-                    print("!" * SEP_LEN + "\n", file=sys.stderr)
-                    # Recored failed model fitting and break pair's action loop
-                    failed_pairs.append(
-                        {
-                            "pair": pair,
-                            "action": action,
-                            "error": str(e),
-                            "traceback": tb_str,
-                        }
-                    )
-                    break
-        except Exception as e:
-            # Catching issues that happen before actions (e.g., file copying or settings)
-            print(
-                f"An error occurred during setup for pair '{pair}': {e}",
-                file=sys.stderr,
-            )
-            failed_pairs.append(
-                {"pair": pair, "action": "setup", "error": str(e)}
-            )
-            continue
-
-    # --- FINAL PIPELINE SUMMARY ---
-    print("\n" + "#" * SEP_LEN)
-    print("PIPELINE EXECUTION SUMMARY")
-    print("#" * SEP_LEN)
-    print(f"Total pairs processed: {len(pairs)}")
-    print(f"Successfully completed: {len(pairs) - len(failed_pairs)}")
-    print(f"Failed/Skipped: {len(failed_pairs)}")
-
-    if failed_pairs:
-        err_msg = "\n".join(
-            ["Stage of Failures:"]
-            + [
-                f" - {failure['pair']} at {failure['action']}"
-                for failure in failed_pairs
-            ]
-        )
-        print("#" * SEP_LEN + "\n")
-        raise RuntimeError(err_msg)
-    print("#" * SEP_LEN + "\n")
+ACTION_REGISTRY = {
+    "fit_signal_model": fit_signal_model,
+    "select_bias_covs": select_bias_covs,
+    "fit_linear_model": fit_linear_model,
+}
 
 
 def main(args=None) -> None:
-    parser = ArgumentParser(description="Continuous burden of proof pipeline.")
-    parser.add_argument(
-        "-i",
-        "--input",
-        type=os.path.abspath,
-        required=True,
-        help="Input data folder",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=os.path.abspath,
-        required=True,
-        help="Output result folder",
-    )
-    parser.add_argument(
-        "-p",
-        "--pairs",
-        required=False,
-        default=None,
-        nargs="+",
-        help="Included pairs, default all pairs",
-    )
-    parser.add_argument(
-        "-a",
-        "--actions",
-        choices=["fit_signal_model", "select_bias_covs", "fit_linear_model"],
-        default=None,
-        nargs="+",
-        help="Included actions, default all actions",
-    )
-    parser.add_argument(
-        "-m",
-        "--metadata",
-        nargs="*",
-        required=False,
-        default={},
-        action=ParseKwargs,
-        help="User defined metadata",
+    parser = create_argument_parser(
+        "Continuous burden of proof pipeline.",
+        actions=list(ACTION_REGISTRY),
     )
     args = parser.parse_args(args)
-    run(args.input, args.output, args.pairs, args.actions, args.metadata)
+    run_pipeline(
+        args.input,
+        args.output,
+        args.pairs,
+        args.actions,
+        args.metadata,
+        ACTION_REGISTRY,
+    )
 
 
 if __name__ == "__main__":
