@@ -15,7 +15,8 @@ from bopforge.utils import ParseKwargs, fill_dict, get_point_estimate_and_UIs
 warnings.filterwarnings("ignore")
 
 
-def pre_processing(dataif: DataInterface) -> None:
+def pre_processing(result_dir: Path) -> None:
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
     df = dataif.load_result(f"raw-{name}.csv")
     all_settings = dataif.load_result("settings.yaml")
@@ -43,7 +44,7 @@ def pre_processing(dataif: DataInterface) -> None:
     dataif.dump_result(all_settings, "settings.yaml")
 
 
-def fit_signal_model(dataif: DataInterface) -> None:
+def fit_signal_model(result_dir: Path) -> None:
     """Fit signal model. This step involves, non-linear curve fitting and
     trimming, but does not use a mixed effect model. A single panel plot will be
     created for vetting the fit of the signal and a summary file will be
@@ -51,11 +52,12 @@ def fit_signal_model(dataif: DataInterface) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
-    pre_processing(dataif)
+    pre_processing(result_dir)
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -94,7 +96,7 @@ def fit_signal_model(dataif: DataInterface) -> None:
     fig.savefig(dataif.result / "signal_model.pdf", bbox_inches="tight")
 
 
-def select_bias_covs(dataif: DataInterface) -> None:
+def select_bias_covs(result_dir: Path) -> None:
     """Select the bias covariates. In this step, we first fit a linear model to
     get the prior strength of the bias-covariates. And then we use `CovFinder`
     to select important bias-covariates. A summary of the result will be
@@ -102,10 +104,11 @@ def select_bias_covs(dataif: DataInterface) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -130,7 +133,7 @@ def select_bias_covs(dataif: DataInterface) -> None:
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-def fit_linear_model(dataif: DataInterface) -> None:
+def fit_linear_model(result_dir: Path) -> None:
     """Fit the final linear mixed effect model for the process. We will fit the
     linear model using the signal and selected bias covariates in this step.
     And we will create draws and quantiles for the risk curve. A two panels
@@ -139,10 +142,11 @@ def fit_linear_model(dataif: DataInterface) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -253,14 +257,13 @@ def run(
             dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
 
             np.random.seed(pair_settings["seed"])
-            pair_dataif = DataInterface(result=pair_o_dir)
 
             for action in actions:
                 # Indicate which stage of the pipeline is being run
                 print(f"  > Running action: {action}...")
                 # Error handling
                 try:
-                    globals()[action](pair_dataif)
+                    globals()[action](pair_o_dir)
                     print(f"    [SUCCESS] Finished {action}.")
                 except Exception as e:
                     tb_str = traceback.format_exc()
