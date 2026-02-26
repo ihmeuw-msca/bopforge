@@ -3,26 +3,26 @@ Ultility functions
 """
 
 import argparse
-from typing import Dict, Optional, Tuple
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from mrtool import MRBRT, MRBeRT, MRData
 
 
-def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
+def fill_dict(des_dict: dict, default_dict: dict) -> dict:
     """Fill given dictionary by the default dictionary.
 
     Parameters
     ----------
-    des_dict : Dict
+    des_dict : dict
         Given dictionary that needs to be filled.
-    default_dict : Dict
+    default_dict : dict
         Default dictionary
 
     Returns
     -------
-    Dict
+    dict
         Updated dictionary.
     """
     for key, value in default_dict.items():
@@ -35,7 +35,7 @@ def fill_dict(des_dict: Dict, default_dict: Dict) -> Dict:
 
 def get_beta_info(
     model: MRBRT, cov_name: str | None = "signal"
-) -> Tuple[float, float]:
+) -> tuple[float | npt.NDArray, float | npt.NDArray]:
     """Get the posterior information of beta.
 
     Parameters
@@ -47,7 +47,7 @@ def get_beta_info(
 
     Returns
     -------
-    Tuple[float, float]
+    tuple[float | npt.NDArray, float | npt.NDArray]
         Return the mean and standard deviation of the corresponding beta.
     """
     lt = model.lt
@@ -63,7 +63,7 @@ def get_beta_info(
     return (beta, beta_sd)
 
 
-def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
+def get_gamma_info(model: MRBRT) -> tuple[float, float]:
     """Get the posterior information of gamma.
 
     Parameters
@@ -74,7 +74,7 @@ def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
 
     Returns
     -------
-    Tuple[float, float]
+    tuple[float, float]
         Return the mean and standard deviation of the corresponding gamma.
     """
     lt = model.lt
@@ -85,8 +85,8 @@ def get_gamma_info(model: MRBRT) -> Tuple[float, float]:
 
 
 def _get_signal_value(
-    signal_model: MRBeRT, risk: np.ndarray, ref: float
-) -> np.ndarray:
+    signal_model: MRBeRT, risk: npt.NDArray, ref: float
+) -> npt.NDArray:
     """Get signal from signal_model over input risk vector, anchored at given
     reference exposure. Ref will almost always be minimum risk in data to ensure
     risk curve is anchored at the data minimum; if curve will be normalized
@@ -123,10 +123,10 @@ def _get_signal_value(
 
 def _get_signal_slope(
     signal_model: MRBeRT,
-    risk: np.ndarray,
+    risk: npt.NDArray,
     ref: float,
     dx: float | None = 1e-2,
-) -> np.ndarray:
+) -> npt.NDArray:
     """Get slope(s) of signal at specified risk points for linear extrapolation.
 
     Parameters
@@ -156,12 +156,12 @@ def _get_signal_slope(
 
 def get_signal(
     signal_model: MRBeRT,
-    risk: np.ndarray,
+    risk: npt.NDArray,
     risk_bounds: tuple[float, float],
     risk_l_linear: float | None = None,
     risk_r_linear: float | None = None,
     tmrel: float | None = None,
-) -> np.ndarray:
+) -> npt.NDArray:
     """Compute risk grid and final signal. Will always anchor the curve at lnRR = 0
     at the data minimum and supports linear extrapolation and truncation
 
@@ -229,7 +229,7 @@ def get_risk_bounds(
     settings: dict,
     summary: dict,
     signal_model: MRBeRT,
-) -> tuple[np.ndarray, list[float | None]]:
+) -> tuple[npt.NDArray, list[float | None]]:
     """
     Parameters
     ----------
@@ -242,7 +242,7 @@ def get_risk_bounds(
 
     Returns
     -------
-    tuple[np.ndarray, list[float | None]]
+    tuple[npt.NDArray, list[float | None]]
         Returns an array defining the output risk grid for quantiles and draws, and
         a list [risk_l_linear, risk_r_linear, tmrel] derived from the data/ and used
         to anchor/extrapolate/truncate the signal. Values are None if settings are
@@ -342,8 +342,8 @@ def get_point_estimate_and_UIs(
 
 
 def _validate_required_quantiles(
-    user_quantiles: np.ndarray,
-) -> np.ndarray:
+    user_quantiles: npt.NDArray,
+) -> npt.NDArray:
     """Ensure that the user-specified quantiles from settings.yaml include the
     required quantiles to generate the point estimate (mean), 95% UIs, and BPRF.
     If any of these required quantiles are missing, they will be added to the
@@ -370,7 +370,7 @@ class ParseKwargs(argparse.Action):
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
         values: list[str],
-        option_string: Optional[str] = None,
+        option_string: str | None = None,
     ):
         """Parse keyword arguments into a dictionary. Be sure to set `nargs='*'`
         in the ArgumentParser to parse the input as a list of strings, otherwise
