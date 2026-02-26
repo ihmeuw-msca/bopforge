@@ -853,14 +853,14 @@ def get_draws(
     df_inner = pd.DataFrame(
         inner_beta_samples,
         columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-        index=pair_coefs.index,
+        index=ids.index,
     )
     df_inner_draws = pd.concat([ids, df_inner], axis=1)
 
     df_outer = pd.DataFrame(
         outer_beta_samples,
         columns=[f"draw_{i}" for i in range(settings["draws"]["num_draws"])],
-        index=pair_coefs.index,
+        index=ids.index,
     )
     df_outer_draws = pd.concat([ids, df_outer], axis=1)
 
@@ -910,13 +910,13 @@ def get_quantiles(
     df_inner = pd.DataFrame(
         inner_beta_quantiles,
         columns=list(map(str, quantiles)),
-        index=pair_coefs.index,
+        index=ids.index,
     )
     df_inner_quantiles = pd.concat([ids, df_inner], axis=1)
     df_outer = pd.DataFrame(
         outer_beta_quantiles,
         columns=list(map(str, quantiles)),
-        index=pair_coefs.index,
+        index=ids.index,
     )
     df_outer_quantiles = pd.concat([ids, df_outer], axis=1)
 
