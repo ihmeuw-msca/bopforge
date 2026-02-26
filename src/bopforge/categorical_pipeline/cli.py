@@ -1,5 +1,5 @@
+import pathlib
 import warnings
-from pathlib import Path
 
 import numpy as np
 from pplkit.data.interface import DataInterface
@@ -11,7 +11,7 @@ from bopforge.utils import fill_dict, get_point_estimate_and_UIs
 warnings.filterwarnings("ignore")
 
 
-def pre_processing(result_dir: Path) -> None:
+def pre_processing(result_dir: pathlib.Path) -> None:
     dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
@@ -60,7 +60,7 @@ def pre_processing(result_dir: Path) -> None:
     dataif.dump_result(summary, "summary.yaml")
 
 
-def fit_signal_model(result_dir: Path) -> None:
+def fit_signal_model(result_dir: pathlib.Path) -> None:
     """Fit signal model. This step involves, trimming, but does not use a mixed
     effect model. The goal is to get the strength of prior for the covariate
     selection step and identifying all the outliers. A summary file will be
@@ -105,7 +105,7 @@ def fit_signal_model(result_dir: Path) -> None:
     dataif.dump_result(summary, "summary.yaml")
 
 
-def select_bias_covs(result_dir: Path) -> None:
+def select_bias_covs(result_dir: pathlib.Path) -> None:
     """Select the bias covariates. In this step, we first fit a linear model to
     get the prior strength of the bias-covariates. And then we use `CovFinder`
     to select important bias-covariates. A summary of the result will be
@@ -141,7 +141,7 @@ def select_bias_covs(result_dir: Path) -> None:
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-def fit_linear_model(result_dir: Path) -> None:
+def fit_linear_model(result_dir: pathlib.Path) -> None:
     """Fit the final linear mixed effect model for the process. We will fit the
     linear model using selected bias covariates in this step. And we will create
     draws and quantiles for the effects. A single panels figure will be plotted
