@@ -2,6 +2,7 @@
 burden-of-proof pipelines."""
 
 import argparse
+import enum
 import os
 import pathlib
 import shutil
@@ -16,6 +17,32 @@ from pplkit.data.interface import DataInterface
 from bopforge.utils import ParseKwargs, fill_dict
 
 warnings.filterwarnings("ignore")
+
+
+class Style(enum.Enum):
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+
+
+def styled(msg: str, *styles: Style) -> str:
+    if not sys.stdout.isatty() or not styles:
+        return msg
+    prefix = "".join(s.value for s in styles)
+    return f"{prefix}{msg}{Style.RESET.value}"
+
+
+def banner(msg: str, *styles: Style, fill: str = "=") -> str:
+    width = shutil.get_terminal_size(fallback=(80, 24)).columns
+    text = f"{msg}".center(width, fill)
+    if Style.BOLD not in styles:
+        styles = (*styles, Style.BOLD)
+    return styled(text, *styles)
 
 
 def create_argument_parser(
@@ -142,13 +169,9 @@ def run_pipeline(
         raise ValueError(f"{list(inactions)} are invalid actions")
 
     failed_pairs: list[dict] = []
-    SEP_LEN = 60
 
     for pair in valid_pairs:
-        # Indicate which pair is being modeled
-        print("\n" + "=" * SEP_LEN)
-        print(f"MODELING PAIR: {pair}")
-        print("=" * SEP_LEN)
+        print("\n" + banner(f" MODELING PAIR: {pair} "))
 
         pair_o_dir = o_path / pair
         pair_o_dir.mkdir(parents=True, exist_ok=True)
@@ -166,18 +189,30 @@ def run_pipeline(
             np.random.seed(pair_settings["seed"])
 
             for action in actions:
-                print(f"  > Running action: {action}...")
+                print(styled(f"  > Running action: {action}..."))
                 try:
                     action_registry[action](pair_o_dir)
-                    print(f"    [SUCCESS] Finished {action}.")
+                    print(
+                        styled(f"    [SUCCESS] Finished {action}.", Style.GREEN)
+                    )
                 except Exception as e:
                     tb_str = traceback.format_exc()
-                    print("\n" + "!" * SEP_LEN, file=sys.stderr)
-                    print(f"FAILURE during pair: {pair}", file=sys.stderr)
-                    print(f"Action: {action}", file=sys.stderr)
-                    print(f"Error Type: {type(e).__name__}", file=sys.stderr)
-                    print(f"Error Details: {str(e)}", file=sys.stderr)
-                    print("!" * SEP_LEN + "\n", file=sys.stderr)
+                    print(
+                        "\n" + banner(" FAILURE ", Style.RED, fill="!"),
+                        file=sys.stderr,
+                    )
+                    print(styled(f"Pair: {pair}", Style.RED), file=sys.stderr)
+                    print(
+                        styled(f"Action: {action}", Style.RED), file=sys.stderr
+                    )
+                    print(
+                        styled(f"Error Type: {type(e).__name__}", Style.RED),
+                        file=sys.stderr,
+                    )
+                    print(
+                        styled(f"Error Details: {str(e)}", Style.RED),
+                        file=sys.stderr,
+                    )
                     failed_pairs.append(
                         {
                             "pair": pair,
@@ -192,7 +227,10 @@ def run_pipeline(
             # Catching issues that happen before actions
             # (e.g., file copying or settings merging)
             print(
-                f"An error occurred during setup for pair '{pair}': {e}",
+                styled(
+                    f"An error occurred during setup for pair '{pair}': {e}",
+                    Style.RED,
+                ),
                 file=sys.stderr,
             )
             failed_pairs.append(
@@ -200,12 +238,20 @@ def run_pipeline(
             )
             continue
 
-    print("\n" + "#" * SEP_LEN)
-    print("PIPELINE EXECUTION SUMMARY")
-    print("#" * SEP_LEN)
-    print(f"Total pairs processed: {len(valid_pairs)}")
-    print(f"Successfully completed: {len(valid_pairs) - len(failed_pairs)}")
-    print(f"Failed/Skipped: {len(failed_pairs)}")
+    num_success = len(valid_pairs) - len(failed_pairs)
+    summary_style = Style.GREEN if not failed_pairs else Style.YELLOW
+
+    print(
+        "\n" + banner(" PIPELINE EXECUTION SUMMARY ", summary_style, fill="#")
+    )
+    print(f"  Total pairs processed:  {len(valid_pairs)}")
+    print(styled(f"  Successfully completed: {num_success}", Style.GREEN))
+    print(
+        styled(
+            f"  Failed/Skipped:         {len(failed_pairs)}",
+            Style.RED if failed_pairs else Style.GREEN,
+        )
+    )
 
     if failed_pairs:
         err_msg = "\n".join(
@@ -215,6 +261,5 @@ def run_pipeline(
                 for failure in failed_pairs
             ]
         )
-        print("#" * SEP_LEN + "\n")
+        print(banner("", summary_style, fill="#") + "\n")
         raise RuntimeError(err_msg)
-    print("#" * SEP_LEN + "\n")
