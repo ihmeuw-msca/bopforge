@@ -13,6 +13,7 @@ from bopforge.utils import (
     get_gamma_info,
     get_risk_bounds,
     get_signal,
+    score_to_star_rating,
 )
 
 
@@ -433,19 +434,7 @@ def get_linear_model_summary(
     else:
         score = float(((sign * burden_of_proof)[:, index].mean(axis=1)).min())
         summary["score"] = score
-        # Assign star rating based on ROS
-        if np.isnan(score):
-            summary["star_rating"] = 0
-        elif score > np.log(1 + 0.85):
-            summary["star_rating"] = 5
-        elif score > np.log(1 + 0.50):
-            summary["star_rating"] = 4
-        elif score > np.log(1 + 0.15):
-            summary["star_rating"] = 3
-        elif score > 0:
-            summary["star_rating"] = 2
-        else:
-            summary["star_rating"] = 1
+        summary["star_rating"] = score_to_star_rating(score)
 
     # compute the publication bias
     index = df.is_outlier == 0
