@@ -1,7 +1,7 @@
 import pathlib
 import warnings
 
-from pplkit.data.interface import DataInterface
+from pplkit.io import IOManager
 
 import bopforge.dichotomous_pipeline.functions as functions
 from bopforge.base_pipeline import create_argument_parser, run_pipeline
@@ -11,12 +11,12 @@ warnings.filterwarnings("ignore")
 
 
 def pre_processing(result_dir: pathlib.Path) -> None:
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
     # load data
-    df = dataif.load_result(f"raw-{name}.csv")
-    all_settings = dataif.load_result("settings.yaml")
+    df = iom.load(f"raw-{name}.csv", key="result")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["select_bias_covs"]["cov_finder"]
 
     # get bias covariates that need to be removed
@@ -37,8 +37,8 @@ def pre_processing(result_dir: pathlib.Path) -> None:
     all_settings["select_bias_covs"]["cov_finder"] = settings
 
     # save results
-    dataif.dump_result(df, f"{name}.csv")
-    dataif.dump_result(all_settings, "settings.yaml")
+    iom.dump(df, f"{name}.csv", key="result")
+    iom.dump(all_settings, "settings.yaml", key="result")
 
 
 def fit_signal_model(result_dir: pathlib.Path) -> None:
@@ -54,14 +54,14 @@ def fit_signal_model(result_dir: pathlib.Path) -> None:
 
     """
     pre_processing(result_dir)
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
     # load data
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
 
     # load settings
-    all_settings = dataif.load_result("settings.yaml")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["fit_signal_model"]
 
     signal_model = functions.get_signal_model(settings, df)
@@ -82,9 +82,9 @@ def fit_signal_model(result_dir: pathlib.Path) -> None:
     summary = functions.get_signal_model_summary(name, df)
 
     # save results
-    dataif.dump_result(df, f"{name}.csv")
-    dataif.dump_result(signal_model, "signal_model.pkl")
-    dataif.dump_result(summary, "summary.yaml")
+    iom.dump(df, f"{name}.csv", key="result")
+    iom.dump(signal_model, "signal_model.pkl", key="result")
+    iom.dump(summary, "summary.yaml", key="result")
 
 
 def select_bias_covs(result_dir: pathlib.Path) -> None:
@@ -99,16 +99,16 @@ def select_bias_covs(result_dir: pathlib.Path) -> None:
         Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
     df = df[df.is_outlier == 0].copy()
 
-    all_settings = dataif.load_result("settings.yaml")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["select_bias_covs"]
 
-    cov_finder_linear_model = dataif.load_result("signal_model.pkl")
+    cov_finder_linear_model = iom.load("signal_model.pkl", key="result")
 
     cov_finder = functions.get_cov_finder(settings, cov_finder_linear_model)
     cov_finder.select_covs(verbose=True)
@@ -117,8 +117,8 @@ def select_bias_covs(result_dir: pathlib.Path) -> None:
         cov_finder_linear_model, cov_finder
     )
 
-    dataif.dump_result(cov_finder_result, "cov_finder_result.yaml")
-    dataif.dump_result(cov_finder, "cov_finder.pkl")
+    iom.dump(cov_finder_result, "cov_finder_result.yaml", key="result")
+    iom.dump(cov_finder, "cov_finder.pkl", key="result")
 
 
 def fit_linear_model(result_dir: pathlib.Path) -> None:
@@ -134,16 +134,16 @@ def fit_linear_model(result_dir: pathlib.Path) -> None:
         Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
     df_train = df[df.is_outlier == 0].copy()
 
-    cov_finder_result = dataif.load_result("cov_finder_result.yaml")
-    all_settings = dataif.load_result("settings.yaml")
+    cov_finder_result = iom.load("cov_finder_result.yaml", key="result")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["complete_summary"]
-    summary = dataif.load_result("summary.yaml")
+    summary = iom.load("summary.yaml", key="result")
 
     linear_model = functions.get_linear_model(df_train, cov_finder_result)
     linear_model.fit_model()
@@ -162,14 +162,14 @@ def fit_linear_model(result_dir: pathlib.Path) -> None:
 
     fig = functions.plot_linear_model(summary, df)
 
-    dataif.dump_result(linear_model, "linear_model.pkl")
-    dataif.dump_result(summary, "summary.yaml")
-    dataif.dump_result(df_inner_draws, "inner_draws.csv")
-    dataif.dump_result(df_outer_draws, "outer_draws.csv")
-    dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
-    dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
-    dataif.dump_result(df_summary, "summary_estimates.csv")
-    fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
+    iom.dump(linear_model, "linear_model.pkl", key="result")
+    iom.dump(summary, "summary.yaml", key="result")
+    iom.dump(df_inner_draws, "inner_draws.csv", key="result")
+    iom.dump(df_outer_draws, "outer_draws.csv", key="result")
+    iom.dump(df_inner_quantiles, "inner_quantiles.csv", key="result")
+    iom.dump(df_outer_quantiles, "outer_quantiles.csv", key="result")
+    iom.dump(df_summary, "summary_estimates.csv", key="result")
+    fig.savefig(iom["result"] / "linear_model.pdf", bbox_inches="tight")
 
 
 ACTION_REGISTRY = {
