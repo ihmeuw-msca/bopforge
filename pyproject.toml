@@ -22,9 +22,9 @@ docs = ["sphinx", "sphinx-autodoc-typehints", "furo"]
 github = "https://github.com/ihmeuw-msca/bopforge"
 
 [project.scripts]
-continuous_pipeline = "bopforge.continuous_pipeline.__main__:main"
-dichotomous_pipeline = "bopforge.dichotomous_pipeline.__main__:main"
-categorical_pipeline = "bopforge.categorical_pipeline.__main__:main"
+continuous_pipeline = "bopforge.continuous_pipeline.cli:main"
+dichotomous_pipeline = "bopforge.dichotomous_pipeline.cli:main"
+categorical_pipeline = "bopforge.categorical_pipeline.cli:main"
 
 [tool.sphinx]
 project = "bopforge"

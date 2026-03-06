@@ -1,20 +1,18 @@
-import os
-import shutil
+import pathlib
 import warnings
-from argparse import ArgumentParser
-from pathlib import Path
 
 import numpy as np
 from pplkit.data.interface import DataInterface
 
 import bopforge.categorical_pipeline.functions as functions
-from bopforge.utils import ParseKwargs, fill_dict, get_point_estimate_and_UIs
+from bopforge.base_pipeline import create_argument_parser, run_pipeline
+from bopforge.utils import fill_dict, get_point_estimate_and_UIs
 
 warnings.filterwarnings("ignore")
 
 
-def pre_processing(result_folder: Path) -> None:
-    dataif = DataInterface(result=result_folder)
+def pre_processing(result_dir: pathlib.Path) -> None:
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     # load data
@@ -62,7 +60,7 @@ def pre_processing(result_folder: Path) -> None:
     dataif.dump_result(summary, "summary.yaml")
 
 
-def fit_signal_model(result_folder: Path) -> None:
+def fit_signal_model(result_dir: pathlib.Path) -> None:
     """Fit signal model. This step involves, trimming, but does not use a mixed
     effect model. The goal is to get the strength of prior for the covariate
     selection step and identifying all the outliers. A summary file will be
@@ -70,12 +68,12 @@ def fit_signal_model(result_folder: Path) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
-    pre_processing(result_folder)
-    dataif = DataInterface(result=result_folder)
+    pre_processing(result_dir)
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     # load data
@@ -107,7 +105,7 @@ def fit_signal_model(result_folder: Path) -> None:
     dataif.dump_result(summary, "summary.yaml")
 
 
-def select_bias_covs(result_folder: Path) -> None:
+def select_bias_covs(result_dir: pathlib.Path) -> None:
     """Select the bias covariates. In this step, we first fit a linear model to
     get the prior strength of the bias-covariates. And then we use `CovFinder`
     to select important bias-covariates. A summary of the result will be
@@ -115,11 +113,11 @@ def select_bias_covs(result_folder: Path) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_folder)
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -143,7 +141,7 @@ def select_bias_covs(result_folder: Path) -> None:
     dataif.dump_result(cov_finder, "cov_finder.pkl")
 
 
-def fit_linear_model(result_folder: Path) -> None:
+def fit_linear_model(result_dir: pathlib.Path) -> None:
     """Fit the final linear mixed effect model for the process. We will fit the
     linear model using selected bias covariates in this step. And we will create
     draws and quantiles for the effects. A single panels figure will be plotted
@@ -152,11 +150,11 @@ def fit_linear_model(result_folder: Path) -> None:
 
     Parameters
     ----------
-    dataif
-        Data interface in charge of file reading and writing.
+    result_dir
+        Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_folder)
+    dataif = DataInterface(result=result_dir)
     name = dataif.result.name
 
     df = dataif.load_result(f"{name}.csv")
@@ -218,171 +216,28 @@ def fit_linear_model(result_folder: Path) -> None:
         )
 
 
-def run(
-    i_dir: str,
-    o_dir: str,
-    pairs: list[str],
-    actions: list[str],
-    metadata: dict,
-) -> None:
-    i_dir, o_dir = Path(i_dir), Path(o_dir)
-    # check the input and output folders
-    if not i_dir.exists():
-        raise FileNotFoundError("input data folder not found")
-
-    o_dir.mkdir(parents=True, exist_ok=True)
-
-    dataif = DataInterface(i_dir=i_dir, o_dir=o_dir)
-    settings = dataif.load_i_dir("settings.yaml")
-
-    # check pairs
-    all_pairs = [pair for pair in settings.keys() if pair != "default"]
-    pairs = pairs or all_pairs
-    for pair in pairs:
-        data_path = dataif.get_fpath(f"{pair}.csv", key="i_dir")
-        if not data_path.exists():
-            raise FileNotFoundError(f"Missing data file {data_path}")
-
-    # check actions
-    # TODO: might be good to use enum here
-    all_actions = ["fit_signal_model", "select_bias_covs", "fit_linear_model"]
-    actions = actions or all_actions
-    invalid_actions = set(actions) - set(all_actions)
-    if len(invalid_actions) != 0:
-        raise ValueError(f"{list(invalid_actions)} are invalid actions")
-
-    # fit each pair
-    for pair in pairs:
-        pair_o_dir = o_dir / pair
-        pair_o_dir.mkdir(parents=True, exist_ok=True)
-
-        shutil.copy(i_dir / f"{pair}.csv", pair_o_dir / f"raw-{pair}.csv")
-
-        if pair not in settings:
-            pair_settings = settings["default"]
-        else:
-            pair_settings = fill_dict(settings[pair], settings["default"])
-        pair_settings["metadata"] = metadata
-        dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
-
-        np.random.seed(pair_settings["seed"])
-        for action in actions:
-            globals()[action](pair_o_dir)
+ACTION_REGISTRY = {
+    "fit_signal_model": fit_signal_model,
+    "select_bias_covs": select_bias_covs,
+    "fit_linear_model": fit_linear_model,
+}
 
 
 def main(args=None) -> None:
-    parser = ArgumentParser(description="Categorical burden of proof pipeline.")
-    parser.add_argument(
-        "-i",
-        "--input",
-        type=os.path.abspath,
-        required=True,
-        help="Input data folder",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=os.path.abspath,
-        required=True,
-        help="Output result folder",
-    )
-    parser.add_argument(
-        "-p",
-        "--pairs",
-        required=False,
-        default=None,
-        nargs="+",
-        help="Included pairs, default all pairs",
-    )
-    parser.add_argument(
-        "-a",
-        "--actions",
-        choices=["fit_signal_model", "select_bias_covs", "fit_linear_model"],
-        default=None,
-        nargs="+",
-        help="Included actions, default all actions",
-    )
-    parser.add_argument(
-        "-m",
-        "--metadata",
-        nargs="*",
-        required=False,
-        default={},
-        action=ParseKwargs,
-        help="User defined metadata",
+    parser = create_argument_parser(
+        "Categorical burden of proof pipeline.",
+        actions=list(ACTION_REGISTRY),
     )
     args = parser.parse_args(args)
-
-    run(args.input, args.output, args.pairs, args.actions, args.metadata)
+    run_pipeline(
+        args.input,
+        args.output,
+        args.pairs,
+        args.actions,
+        args.metadata,
+        ACTION_REGISTRY,
+    )
 
 
 if __name__ == "__main__":
     main()
-
-    # # get covariates that need to be removed
-    # all_covs = [col for col in df.columns if col.startswith("cov_")]
-    # covs_to_remove = [col for col in all_covs if len(df[col].unique()) == 1]
-
-    # # remove from dataframe
-    # df.drop(columns=covs_to_remove, inplace=True)
-
-    # # remove from settings
-    # all_covs = set(all_covs)
-    # covs_to_remove = set(covs_to_remove)
-    # subset_covs = all_covs - covs_to_remove
-    # # pre-selected bias covariates
-    # pre_selected_covs = set(settings["pre_selected_covs"])
-    # pre_selected_covs = pre_selected_covs & all_covs
-    # pre_selected_covs = pre_selected_covs - covs_to_remove
-    # # model covariates
-    # interacted_covs = set(model_cov_settings["interacted_covs"])
-    # non_interacted_covs = set(model_cov_settings["non_interacted_covs"])
-    # interacted_covs = interacted_covs & all_covs
-    # non_interacted_covs = non_interacted_covs & all_covs
-    # interacted_covs = interacted_covs - covs_to_remove
-    # non_interacted_covs = non_interacted_covs - covs_to_remove
-
-    # # Separate model covariates from bias covariates
-    # col_bias_covs = list(subset_covs - interacted_covs - non_interacted_covs)
-
-    # settings["pre_selected_covs"] = list(pre_selected_covs)
-    # # settings["candidate_bias_covs"] = col_bias_covs
-    # model_cov_settings["interacted_covs"] = list(interacted_covs)
-    # model_cov_settings["non_interacted_covs"] = list(non_interacted_covs)
-    # model_cov_settings["candidate_bias_covs"] = col_bias_covs
-    # all_settings["select_bias_covs"]["cov_finder"] = settings
-    # all_settings["select_bias_covs"]["model_covs"] = model_cov_settings
-
-
-# # Create design matrices for interacted covariates
-# cats = np.unique(df[["ref_risk_cat", "alt_risk_cat"]].to_numpy().ravel())
-# alt_cats_mat = pd.get_dummies(df["alt_risk_cat"], drop_first=False).astype(
-#     float
-# )
-# ref_cats_mat = pd.get_dummies(df["ref_risk_cat"], drop_first=False).astype(
-#     float
-# )
-# for cat in cats:
-#     if cat not in alt_cats_mat:
-#         alt_cats_mat[cat] = 0.0
-#     if cat not in ref_cats_mat:
-#         ref_cats_mat[cat] = 0.0
-# alt_cats_mat = alt_cats_mat[cats]
-# ref_cats_mat = ref_cats_mat[cats]
-# design = alt_cats_mat - ref_cats_mat
-# model_covs = list(interacted_covs)
-# design_matrices = {}
-# for cov_name in model_covs:
-#     cov_name_key = f"{cov_name}_design"
-#     cov_design = design.copy()
-#     cat_name_temp = [
-#         f"model_{cov_name}_{col}" for col in cov_design.columns
-#     ]
-#     cov_design.columns = cat_name_temp
-#     cov_design[:] = cov_design.to_numpy() * df[cov_name].to_numpy()[:, None]
-#     cov_design[cov_design == -0.0] = 0.0
-#     design_matrices[cov_name_key] = cov_design
-
-# # Append model covariate design matrices to dataframe
-# for cov_name, cov_design in design_matrices.items():
-#     df = pd.concat([df, cov_design], axis=1)
