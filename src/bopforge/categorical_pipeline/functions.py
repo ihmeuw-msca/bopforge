@@ -769,14 +769,14 @@ def get_linear_model_summary(
     model_cov_names = [
         col for col in linear_model.cov_model_names if col in model_covs
     ]
-    beta_model_covs = {}
-    beta_sd_model_covs = {}
+    model_cov_summary = {}
     for cov in model_cov_names:
         beta_cov, beta_cov_sd = get_beta_info(linear_model, cov_name=cov)
-        beta_model_covs[cov] = float(beta_cov)
-        beta_sd_model_covs[cov] = float(beta_cov_sd)
-    summary["beta_model_covs"] = beta_model_covs
-    summary["beta_sd_model_covs"] = beta_sd_model_covs
+        model_cov_summary[cov] = {
+            "beta": float(beta_cov),
+            "beta_sd": float(beta_cov_sd),
+        }
+    summary["model_covs"] = model_cov_summary
     summary["score"] = dict(zip(pair_coefs["pair"], pair_coefs["score"]))
     summary["star_rating"] = dict(
         zip(pair_coefs["pair"], pair_coefs["star_rating"])
