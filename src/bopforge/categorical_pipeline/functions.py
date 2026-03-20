@@ -761,7 +761,9 @@ def get_linear_model_summary(
     )
     summary["gamma"] = set(cat_coefs["gamma"]).pop()
     summary["gamma_sd"] = set(cat_coefs["gamma_sd"]).pop()
-    interacted_covs = all_settings["cov_type"].get("interacted_covs", [])
+    interacted_covs = [
+        col for col in df.columns if col.startswith("interacted_")
+    ]
     non_interacted_covs = all_settings["cov_type"].get(
         "non_interacted_covs", []
     )
