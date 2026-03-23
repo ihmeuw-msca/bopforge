@@ -722,10 +722,10 @@ def get_pair_info(
 def get_linear_model_summary(
     df: DataFrame,
     all_settings: dict,
-    settings: dict,
     summary: dict,
     cat_coefs: DataFrame,
     pair_coefs: DataFrame,
+    linear_model: MRBRT,
 ) -> dict:
     """Complete the summary from the signal model.
 
@@ -735,14 +735,14 @@ def get_linear_model_summary(
         Data frame contains the all dataset.
     all_settings
         Complete list of settings
-    settings
-        Settings for the complete summary section.
     summary
         Summary from the signal model.
     cat_coefs
         Data frame with beta and gamma for each category for fitted linear model
     pair_coefs
         Data frame with beta and gamma for the pairwise category comparisons
+    linear_model
+        Fitted linear model object for extracting beta and beta_sd for model covariates
 
     Returns
     -------
@@ -761,6 +761,24 @@ def get_linear_model_summary(
     )
     summary["gamma"] = set(cat_coefs["gamma"]).pop()
     summary["gamma_sd"] = set(cat_coefs["gamma_sd"]).pop()
+    interacted_covs = [
+        col for col in df.columns if col.startswith("interacted_")
+    ]
+    non_interacted_covs = all_settings["cov_type"].get(
+        "non_interacted_covs", []
+    )
+    model_covs = interacted_covs + non_interacted_covs
+    model_cov_names = [
+        col for col in linear_model.cov_model_names if col in model_covs
+    ]
+    model_cov_summary = {}
+    for cov in model_cov_names:
+        beta_cov, beta_cov_sd = get_beta_info(linear_model, cov_name=cov)
+        model_cov_summary[cov] = {
+            "beta": float(beta_cov),
+            "beta_sd": float(beta_cov_sd),
+        }
+    summary["model_covs"] = model_cov_summary
     summary["score"] = dict(zip(pair_coefs["pair"], pair_coefs["score"]))
     summary["star_rating"] = dict(
         zip(pair_coefs["pair"], pair_coefs["star_rating"])
