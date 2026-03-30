@@ -304,7 +304,11 @@ def get_cov_finder(
     if "signal" not in pre_selected_covs:
         pre_selected_covs.append("signal")
     if "intercept" in pre_selected_covs:
-        pre_selected_covs.remove("intercept")
+        raise ValueError(
+            "An intercept should not be in the pre-selected covariates; "
+            "this may lead to singular matrix errors later during the bias "
+            "covariate selection step"
+        )
     pre_selected_covs += alt_cats
     settings["cov_finder"]["pre_selected_covs"] = pre_selected_covs
     candidate_covs = [
@@ -829,10 +833,9 @@ def get_linear_model_summary(
         df["alt_risk_cat"].map(beta_dict).values[index]
         - df["ref_risk_cat"].map(beta_dict).values[index]
     )
-    model_cov_signal = np.zeros(len(df.loc[df.is_outlier == 0]))
-    for cov in model_cov_summary.keys():
-        beta_val = model_cov_summary[cov]["beta"]
-        model_cov_signal += df[cov].values[index] * beta_val
+    model_cov_signal = np.zeros(index.sum())
+    for cov, beta_info in model_cov_summary.items():
+        model_cov_signal += df.loc[index, cov] * beta_info["beta"]
 
     residual = df["ln_rr"].values[index] - (cat_signal + model_cov_signal)
 
