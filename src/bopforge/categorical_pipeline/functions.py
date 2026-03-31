@@ -258,10 +258,19 @@ def get_cov_finder(
     CovFinder
         The instance of the CovFinder class.
     """
-    data_signal = cov_finder_linear_model.data
+
     cats = cov_finder_linear_model.cov_models[0].cats
     ref_cat = cov_finder_linear_model.cov_models[0].ref_cat
     alt_cats = [cat for cat in cats if cat != ref_cat]
+
+    data_signal = cov_finder_linear_model.data
+    signal_pred = cov_finder_linear_model.predict(
+        data_signal, sort_by_data_id=True
+    )
+    df_signal = pd.DataFrame(
+        {"seq": data_signal.data_id, "signal": signal_pred}
+    )
+    df = df.merge(df_signal, on="seq", how="inner")
 
     # Create design matrix
     for cat in cats:
@@ -270,13 +279,6 @@ def get_cov_finder(
         df.at[i, row["ref_risk_cat"]] = -1.0  # Assign -1 for ref_risk_cat
         df.at[i, row["alt_risk_cat"]] = 1.0  # Assign 1 for alt_risk_cat
 
-    df = pd.concat(
-        [
-            df,
-            pd.DataFrame(data_signal.covs["intercept"], columns=["intercept"]),
-        ],
-        axis=1,
-    )
     df = df[df.is_outlier == 0].copy()
     col_covs = all_settings["cov_type"]["bias_covs"]
     data = MRData()
@@ -284,7 +286,9 @@ def get_cov_finder(
         df,
         col_obs="ln_rr",
         col_obs_se="ln_rr_se",
-        col_covs=col_covs + alt_cats + ["ref_risk_cat", "alt_risk_cat"],
+        col_covs=col_covs
+        + alt_cats
+        + ["signal", "ref_risk_cat", "alt_risk_cat"],
         col_study_id="study_id",
         col_data_id="seq",
     )
@@ -297,14 +301,21 @@ def get_cov_finder(
     pre_selected_covs = settings["cov_finder"]["pre_selected_covs"]
     if isinstance(pre_selected_covs, str):
         pre_selected_covs = [pre_selected_covs]
-    if "intercept" not in pre_selected_covs:
-        pre_selected_covs.append("intercept")
+    if "signal" not in pre_selected_covs:
+        pre_selected_covs.append("signal")
+    if "intercept" in pre_selected_covs:
+        raise ValueError(
+            "An intercept should not be in the pre-selected covariates; "
+            "this may lead to singular matrix errors later during the bias "
+            "covariate selection step"
+        )
     pre_selected_covs += alt_cats
     settings["cov_finder"]["pre_selected_covs"] = pre_selected_covs
     candidate_covs = [
         cov_name
         for cov_name in data.covs.keys()
-        if cov_name not in pre_selected_covs + ["ref_risk_cat", "alt_risk_cat"]
+        if cov_name
+        not in pre_selected_covs + ["intercept", "ref_risk_cat", "alt_risk_cat"]
     ]
     settings["cov_finder"] = {
         **dict(
@@ -351,9 +362,8 @@ def get_cov_finder_result(
     index = list(cats).index(ref_cat)
     beta_info = tuple(np.delete(arr, index) for arr in beta_info)
 
-    excluded_covs = {"intercept", "alt_risk_cat", "ref_risk_cat"} | set(
-        alt_cats
-    )
+    excluded_covs = {"signal", "alt_risk_cat", "ref_risk_cat"} | set(alt_cats)
+
     selected_covs = [
         cov_name
         for cov_name in cov_finder.selected_covs
@@ -817,10 +827,18 @@ def get_linear_model_summary(
     index = df.is_outlier == 0
     beta_dict = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
     gamma_dict = dict(zip(cat_coefs["cat"], cat_coefs["gamma"]))
-    residual = df["ln_rr"].values[index] - (
+
+    # add residual information
+    cat_signal = (
         df["alt_risk_cat"].map(beta_dict).values[index]
         - df["ref_risk_cat"].map(beta_dict).values[index]
     )
+    model_cov_signal = np.zeros(index.sum())
+    for cov, beta_info in model_cov_summary.items():
+        model_cov_signal += df.loc[index, cov] * beta_info["beta"]
+
+    residual = df["ln_rr"].values[index] - (cat_signal + model_cov_signal)
+
     residual_sd = np.sqrt(
         df.ln_rr_se.values[index] ** 2
         + df["ref_risk_cat"].map(gamma_dict).values[index]
@@ -1315,10 +1333,16 @@ def _plot_funnel(
     """
     # add residual information
     beta = dict(zip(cat_coefs["cat"], cat_coefs["beta"]))
-    gamma = summary["gamma"]
-    residual = df.ln_rr.values - (
+    cat_signal = (
         df.alt_risk_cat.map(beta).values - df.ref_risk_cat.map(beta).values
     )
+    model_cov_info = summary["model_covs"]
+    model_cov_signal = np.zeros(len(df))
+    for cov in model_cov_info.keys():
+        beta_val = model_cov_info[cov]["beta"]
+        model_cov_signal += df[cov].values * beta_val
+    gamma = summary["gamma"]
+    residual = df.ln_rr.values - (cat_signal + model_cov_signal)
     residual_sd = np.sqrt(df["ln_rr_se"].values ** 2 + (gamma))
 
     index = df.is_outlier == 1
