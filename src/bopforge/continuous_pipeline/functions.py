@@ -128,7 +128,7 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBeRT) -> DataFrame:
     )
 
     inlier_pct = signal_model.inlier_pct
-    target_outlier_count = int(np.round((1.0 - inlier_pct) * data.num_obs))
+    target_outlier_count = int(np.ceil((1.0 - inlier_pct) * data.num_obs))
     is_outlier_arr = (signal_model.w_soln < 0.1).astype(int)
     current_outlier_count = np.sum(is_outlier_arr)
     if current_outlier_count < target_outlier_count:
@@ -137,7 +137,6 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBeRT) -> DataFrame:
         additional_outlier_indices = np.argsort(signal_model.w_soln[inlier_indices])[:num_to_add]
         is_outlier_arr[inlier_indices[additional_outlier_indices]] = 1
     is_outlier = is_outlier_arr
-    # is_outlier = (signal_model.w_soln < 0.1).astype(int)
     df = df.merge(
         pd.DataFrame(
             {
