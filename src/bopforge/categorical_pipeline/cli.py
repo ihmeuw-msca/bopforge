@@ -176,7 +176,7 @@ def fit_linear_model(result_dir: pathlib.Path) -> None:
     )
 
     summary = functions.get_linear_model_summary(
-        df, all_settings, settings, summary, cat_coefs, pair_coefs
+        df, all_settings, summary, cat_coefs, pair_coefs, linear_model
     )
 
     df_cleaned = df.loc[:, ~df.columns.str.startswith("interacted_")]
