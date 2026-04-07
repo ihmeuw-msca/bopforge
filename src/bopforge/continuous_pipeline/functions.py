@@ -126,7 +126,13 @@ def convert_bc_to_em(df: DataFrame, signal_model: MRBeRT) -> DataFrame:
             }
         )
     )
-    is_outlier = (signal_model.w_soln < 0.1).astype(int)
+
+    trimming_weights = signal_model.w_soln
+    sub_lt_model = signal_model.sub_models[0].lt
+    num_outliers = int(sub_lt_model.num_outliers)
+    outlier_indices = np.argsort(trimming_weights)[:num_outliers]
+    is_outlier = np.zeros(sub_lt_model.N, dtype=int)
+    is_outlier[outlier_indices] = 1
     df = df.merge(
         pd.DataFrame(
             {
