@@ -1521,6 +1521,29 @@ def _validate_cat_order_prior_order_match(
                 )
 
 
+def _resolve_prior_order(cat_order: list, prior_order: list) -> list:
+    """Derive prior_order from cat_order when the user supplied an ordinal
+    cat_order but left prior_order empty. An explicit prior_order is returned
+    unchanged.
+
+    Parameters
+    ----------
+    cat_order
+        Ordered list of categories for an ordinal risk. Empty for non-ordinal risks.
+    prior_order
+        User-provided prior ordering (list of lists). May be empty.
+
+    Returns
+    -------
+    list
+        ``[cat_order.copy()]`` when cat_order is set and prior_order is empty;
+        otherwise prior_order unchanged.
+    """
+    if cat_order and not prior_order:
+        return [cat_order.copy()]
+    return prior_order
+
+
 def _find_covs_to_remove(df: DataFrame, all_covs: set) -> set:
     """Find and remove covariates that are nearly identical (all or all-but-one value the same)
 
