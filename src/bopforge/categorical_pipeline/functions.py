@@ -64,10 +64,12 @@ def covariate_preprocessing(
     pre_selected_covs -= covs_to_remove
 
     # Update the cov_settings
-    cov_settings["bias_covs"] = list(bias_covs)
-    cov_settings["interacted_covs"] = list(interacted_covs)
-    cov_settings["non_interacted_covs"] = list(non_interacted_covs)
-    pre_selected_cov_settings["pre_selected_covs"] = list(pre_selected_covs)
+    cov_settings["bias_covs"] = list(sorted(bias_covs))
+    cov_settings["interacted_covs"] = list(sorted(interacted_covs))
+    cov_settings["non_interacted_covs"] = list(sorted(non_interacted_covs))
+    pre_selected_cov_settings["pre_selected_covs"] = list(
+        sorted(pre_selected_covs)
+    )
     # Save the updated settings back to the YAML file
     settings["select_bias_covs"]["cov_finder"] = pre_selected_cov_settings
     settings["cov_type"] = cov_settings
