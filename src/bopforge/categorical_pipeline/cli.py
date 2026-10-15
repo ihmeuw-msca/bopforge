@@ -2,7 +2,7 @@ import pathlib
 import warnings
 
 import numpy as np
-from pplkit.data.interface import DataInterface
+from pplkit.io import IOManager
 
 import bopforge.categorical_pipeline.functions as functions
 from bopforge.base_pipeline import create_argument_parser, run_pipeline
@@ -12,12 +12,12 @@ warnings.filterwarnings("ignore")
 
 
 def pre_processing(result_dir: pathlib.Path) -> None:
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
     # load data
-    df = dataif.load_result(f"raw-{name}.csv")
-    all_settings = dataif.load_result("settings.yaml")
+    df = iom.load(f"raw-{name}.csv", key="result")
+    all_settings = iom.load("settings.yaml", key="result")
 
     # Preprocess covariates
     df, cov_settings = functions.covariate_preprocessing(df, all_settings)
@@ -55,9 +55,9 @@ def pre_processing(result_dir: pathlib.Path) -> None:
     functions._validate_cat_order_prior_order_match(cat_order, prior_order)
 
     # save results
-    dataif.dump_result(df, f"{name}.csv")
-    dataif.dump_result(all_settings, "settings.yaml")
-    dataif.dump_result(summary, "summary.yaml")
+    iom.dump(df, f"{name}.csv", key="result")
+    iom.dump(all_settings, "settings.yaml", key="result")
+    iom.dump(summary, "summary.yaml", key="result")
 
 
 def fit_signal_model(result_dir: pathlib.Path) -> None:
@@ -73,15 +73,15 @@ def fit_signal_model(result_dir: pathlib.Path) -> None:
 
     """
     pre_processing(result_dir)
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
     # load data
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
 
     # load settings and summary
-    all_settings = dataif.load_result("settings.yaml")
-    summary = dataif.load_result("summary.yaml")
+    all_settings = iom.load("settings.yaml", key="result")
+    summary = iom.load("summary.yaml", key="result")
 
     signal_model = functions.get_signal_model(df, all_settings, summary)
     settings = all_settings["fit_signal_model"]
@@ -100,9 +100,9 @@ def fit_signal_model(result_dir: pathlib.Path) -> None:
     df = functions.add_cols(df, signal_model)
 
     # save results
-    dataif.dump_result(df, f"{name}.csv")
-    dataif.dump_result(signal_model, "signal_model.pkl")
-    dataif.dump_result(summary, "summary.yaml")
+    iom.dump(df, f"{name}.csv", key="result")
+    iom.dump(signal_model, "signal_model.pkl", key="result")
+    iom.dump(summary, "summary.yaml", key="result")
 
 
 def select_bias_covs(result_dir: pathlib.Path) -> None:
@@ -117,15 +117,15 @@ def select_bias_covs(result_dir: pathlib.Path) -> None:
         Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
 
-    all_settings = dataif.load_result("settings.yaml")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["select_bias_covs"]
 
-    cov_finder_linear_model = dataif.load_result("signal_model.pkl")
+    cov_finder_linear_model = iom.load("signal_model.pkl", key="result")
 
     cov_finder = functions.get_cov_finder(
         df, all_settings, settings, cov_finder_linear_model
@@ -136,9 +136,11 @@ def select_bias_covs(result_dir: pathlib.Path) -> None:
         cov_finder_linear_model, cov_finder
     )
 
-    dataif.dump_result(cov_finder_result, "cov_finder_result.yaml")
-    dataif.dump_result(cov_finder_linear_model, "cov_finder_linear_model.pkl")
-    dataif.dump_result(cov_finder, "cov_finder.pkl")
+    iom.dump(cov_finder_result, "cov_finder_result.yaml", key="result")
+    iom.dump(
+        cov_finder_linear_model, "cov_finder_linear_model.pkl", key="result"
+    )
+    iom.dump(cov_finder, "cov_finder.pkl", key="result")
 
 
 def fit_linear_model(result_dir: pathlib.Path) -> None:
@@ -154,16 +156,16 @@ def fit_linear_model(result_dir: pathlib.Path) -> None:
         Path to the pair's output directory.
 
     """
-    dataif = DataInterface(result=result_dir)
-    name = dataif.result.name
+    iom = IOManager(result=result_dir)
+    name = iom["result"].name
 
-    df = dataif.load_result(f"{name}.csv")
+    df = iom.load(f"{name}.csv", key="result")
     df_train = df[df.is_outlier == 0].copy()
 
-    cov_finder_result = dataif.load_result("cov_finder_result.yaml")
-    all_settings = dataif.load_result("settings.yaml")
+    cov_finder_result = iom.load("cov_finder_result.yaml", key="result")
+    all_settings = iom.load("settings.yaml", key="result")
     settings = all_settings["complete_summary"]
-    summary = dataif.load_result("summary.yaml")
+    summary = iom.load("summary.yaml", key="result")
 
     linear_model = functions.get_linear_model(
         df_train, all_settings, cov_finder_result
@@ -197,22 +199,22 @@ def fit_linear_model(result_dir: pathlib.Path) -> None:
         pair_coefs,
     )
 
-    dataif.dump_result(linear_model, "linear_model.pkl")
-    dataif.dump_result(summary, "summary.yaml")
-    dataif.dump_result(df_cleaned, f"{name}.csv")
-    dataif.dump_result(df_inner_draws, "inner_draws.csv")
-    dataif.dump_result(df_outer_draws, "outer_draws.csv")
-    dataif.dump_result(df_inner_quantiles, "inner_quantiles.csv")
-    dataif.dump_result(df_outer_quantiles, "outer_quantiles.csv")
-    dataif.dump_result(df_summary, "summary_estimates.csv")
-    dataif.dump_result(cat_coefs, "cat_coefs.csv")
-    dataif.dump_result(pair_coefs, "pair_coefs.csv", na_rep="NaN")
-    fig.savefig(dataif.result / "linear_model.pdf", bbox_inches="tight")
+    iom.dump(linear_model, "linear_model.pkl", key="result")
+    iom.dump(summary, "summary.yaml", key="result")
+    iom.dump(df_cleaned, f"{name}.csv", key="result")
+    iom.dump(df_inner_draws, "inner_draws.csv", key="result")
+    iom.dump(df_outer_draws, "outer_draws.csv", key="result")
+    iom.dump(df_inner_quantiles, "inner_quantiles.csv", key="result")
+    iom.dump(df_outer_quantiles, "outer_quantiles.csv", key="result")
+    iom.dump(df_summary, "summary_estimates.csv", key="result")
+    iom.dump(cat_coefs, "cat_coefs.csv", key="result")
+    iom.dump(pair_coefs, "pair_coefs.csv", na_rep="NaN", key="result")
+    fig.savefig(iom["result"] / "linear_model.pdf", bbox_inches="tight")
     cat_order = all_settings["cat_order"]
     if not cat_order:
         fig_panel = functions.plot_linear_panel_model(df, cat_coefs, pair_coefs)
         fig_panel.savefig(
-            dataif.result / "linear_panel_model.pdf", bbox_inches="tight"
+            iom["result"] / "linear_panel_model.pdf", bbox_inches="tight"
         )
 
 

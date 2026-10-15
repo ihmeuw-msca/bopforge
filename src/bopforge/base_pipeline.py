@@ -12,7 +12,7 @@ import typing
 import warnings
 
 import numpy as np
-from pplkit.data.interface import DataInterface
+from pplkit.io import IOManager
 
 from bopforge.utils import ParseKwargs, fill_dict
 
@@ -152,13 +152,13 @@ def run_pipeline(
 
     o_path.mkdir(parents=True, exist_ok=True)
 
-    dataif = DataInterface(i_dir=i_path, o_dir=o_path)
-    settings = dataif.load_i_dir("settings.yaml")
+    iom = IOManager(i_dir=i_path, o_dir=o_path)
+    settings = iom.load("settings.yaml", key="i_dir")
 
     all_pairs = [pair for pair in settings.keys() if pair != "default"]
     valid_pairs = pairs or all_pairs
     for pair in valid_pairs:
-        data_path = dataif.get_fpath(f"{pair}.csv", key="i_dir")
+        data_path = iom["i_dir"] / f"{pair}.csv"
         if not data_path.exists():
             raise FileNotFoundError(f"Missing data file {data_path}")
 
@@ -184,7 +184,7 @@ def run_pipeline(
             else:
                 pair_settings = fill_dict(settings[pair], settings["default"])
             pair_settings["metadata"] = metadata
-            dataif.dump_o_dir(pair_settings, pair, "settings.yaml")
+            iom.dump(pair_settings, f"{pair}/settings.yaml", key="o_dir")
 
             np.random.seed(pair_settings["seed"])
 
